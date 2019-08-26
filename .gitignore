@@ -1,0 +1,5 @@
+*.o
+*.a
+*.elf
+patch/
+err.log

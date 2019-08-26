@@ -1,0 +1,5 @@
+[submodule "common"]
+	path = common
+	url = ssh://git@bitbucket.sw.nxp.com/ipcf/ipc-shm.git
+	branch = develop
+	ignore = all
