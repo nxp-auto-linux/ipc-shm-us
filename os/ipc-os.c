@@ -17,6 +17,8 @@
 #define IPC_SHM_DEV_UIO_NAME    "/dev/uio0"
 #define IPC_SHM_DEV_MEM_NAME    "/dev/mem"
 
+#define RX_SOFTIRQ_POLICY	SCHED_RR
+
 /* system call wrappers for loading and unloading kernel modules */
 #define finit_module(fd, param_values, flags) \
 	syscall(__NR_finit_module, fd, param_values, flags)
@@ -93,6 +95,8 @@ int ipc_os_init(const struct ipc_shm_cfg *cfg, int (*rx_cb)(int))
 	int err;
 	int ipc_uio_module_fd;
 	char ipc_uio_params[80];
+	struct sched_param irq_thread_param;
+	pthread_attr_t irq_thread_attr;
 
 	if (!rx_cb)
 		return -EINVAL;
@@ -169,14 +173,35 @@ int ipc_os_init(const struct ipc_shm_cfg *cfg, int (*rx_cb)(int))
 		goto err_unmap_remote_shm;
 	}
 
-	/* start Rx softirq thread */
-	/* TODO: start this thread with highest priority */
-	err = pthread_create(&priv.irq_thread_id, NULL, ipc_shm_softirq, &priv);
+	/* start Rx softirq thread with the highest priority for its policy */
+	err = pthread_attr_init(&irq_thread_attr);
+	if (err != 0) {
+		goto err_close_uio_dev;
+		shm_err("Can't initialize Rx softirq attributes\n");
+	}
+
+	err = pthread_attr_setschedpolicy(&irq_thread_attr, RX_SOFTIRQ_POLICY);
+	if (err != 0) {
+		goto err_close_uio_dev;
+		shm_err("Can't set Rx softirq policy\n");
+	}
+
+	irq_thread_param.sched_priority = sched_get_priority_max(
+		RX_SOFTIRQ_POLICY);
+	err = pthread_attr_setschedparam(&irq_thread_attr, &irq_thread_param);
+	if (err != 0) {
+		goto err_close_uio_dev;
+		shm_err("Can't set Rx softirq scheduler parameters\n");
+	}
+
+	err = pthread_create(&priv.irq_thread_id, &irq_thread_attr,
+			     ipc_shm_softirq, &priv);
 	if (err == -1) {
 		shm_err("Can't start Rx softirq thread\n");
 		goto err_close_uio_dev;
 	}
-
+	shm_dbg("Created Rx softirq thread with priority=%d\n",
+		irq_thread_param.sched_priority);
 	shm_dbg("done\n");
 
 	return 0;
