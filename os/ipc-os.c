@@ -4,7 +4,9 @@
  */
 #include <fcntl.h>
 #include <unistd.h>
+#include <stdio.h>
 #include <sys/mman.h>
+#include <sys/syscall.h>
 #include <pthread.h>
 
 #include "ipc-os.h"
@@ -14,6 +16,12 @@
 
 #define IPC_SHM_DEV_UIO_NAME    "/dev/uio0"
 #define IPC_SHM_DEV_MEM_NAME    "/dev/mem"
+
+/* system call wrappers for loading and unloading kernel modules */
+#define finit_module(fd, param_values, flags) \
+	syscall(__NR_finit_module, fd, param_values, flags)
+#define delete_module(name, flags) \
+	syscall(__NR_delete_module, name, flags)
 
 /**
  * struct ipc_os_priv - OS specific private data
@@ -83,6 +91,8 @@ int ipc_os_init(const struct ipc_shm_cfg *cfg, int (*rx_cb)(int))
 	size_t page_size = sysconf(_SC_PAGE_SIZE);
 	off_t page_phys_addr;
 	int err;
+	int ipc_uio_module_fd;
+	char ipc_uio_params[80];
 
 	if (!rx_cb)
 		return -EINVAL;
@@ -91,16 +101,33 @@ int ipc_os_init(const struct ipc_shm_cfg *cfg, int (*rx_cb)(int))
 	priv.shm_size = cfg->shm_size;
 	priv.rx_cb = rx_cb;
 
-	/*
-	 * TODO: automatically insert ipc-shm-uio.ko module here with the
-	 * interrupt parameters specified in cfg.
-	 */
+	/* open ipc-uio kernel module */
+	ipc_uio_module_fd = open(IPC_UIO_MODULE_PATH, O_RDONLY);
+	if (ipc_uio_module_fd == -1) {
+		shm_err("Can't open %s module\n", IPC_UIO_MODULE_PATH);
+		return -ENODEV;
+	}
+
+	/* load ipc-uio kernel module passing down hw initialization params */
+	sprintf(ipc_uio_params,
+		"inter_core_tx_irq=%d inter_core_rx_irq=%d remote_core_index=%d",
+		cfg->inter_core_tx_irq, cfg->inter_core_rx_irq,
+		cfg->remote_core.index);
+	shm_dbg("Loading %s with params: %s\n",
+		IPC_UIO_MODULE_PATH, ipc_uio_params);
+
+	if (finit_module(ipc_uio_module_fd, ipc_uio_params, 0) != 0) {
+		shm_err("Can't load %s module\n", IPC_UIO_MODULE_PATH);
+		err = -ENODEV;
+		goto err_close_ipc_shm_uio;
+	}
 
 	/* open MEM device for interrupt support */
 	priv.mem_fd = open(IPC_SHM_DEV_MEM_NAME, O_RDWR);
 	if (priv.mem_fd == -1) {
 		shm_err("Can't open %s device\n", IPC_SHM_DEV_MEM_NAME);
-		return -ENODEV;
+		err = -ENODEV;
+		goto err_close_ipc_shm_uio;
 	}
 
 	/* map local physical shared memory */
@@ -162,6 +189,8 @@ err_unmap_local_shm:
 	munmap(priv.local_shm_map, priv.local_shm_offset + priv.shm_size);
 err_close_mem_dev:
 	close(priv.mem_fd);
+err_close_ipc_shm_uio:
+	close(ipc_uio_module_fd);
 
 	return err;
 }
@@ -189,6 +218,11 @@ void ipc_os_free(void)
 	munmap(priv.local_shm_map, priv.local_shm_offset + priv.shm_size);
 
 	close(priv.mem_fd);
+
+	/* unload ipc-uio kernel module */
+	if (delete_module(IPC_UIO_MODULE_NAME, O_NONBLOCK) != 0) {
+		shm_err("Can't unload %s module\n", IPC_UIO_MODULE_NAME);
+	}
 }
 
 /**

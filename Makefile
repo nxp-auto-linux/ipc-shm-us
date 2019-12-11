@@ -1,8 +1,9 @@
 # SPDX-License-Identifier:	BSD-3-Clause
 #
-# Copyright 2019 NXP Semiconductors
+# Copyright 2019 NXP
 #
 MAKEFLAGS += --warn-undefined-variables
+EXTRA_CFLAGS ?=
 
 ifeq ($(CROSS_COMPILE),)
 $(error CROSS_COMPILE is not set!)
@@ -20,8 +21,17 @@ RM := rm -f
 
 includes := -I./common -I./hw -I./os -I$(IPC_UIO_DIR)
 CFLAGS += -Wall -g $(includes) #-DDEBUG
+CFLAGS += $(EXTRA_CFLAGS)
 
 lib_name = libipc-shm.a
+
+# path to ipc-shm-uio.ko needed for auto-inserting the module
+IPC_UIO_MODULE_PATH ?= ./ipc-shm-uio.ko
+
+ko_basename := $(notdir $(IPC_UIO_MODULE_PATH))
+ko_name := $(shell echo $(ko_basename) | tr '-' '_' | sed -e 's/.ko//')
+CFLAGS += -DIPC_UIO_MODULE_PATH=\"$(IPC_UIO_MODULE_PATH)\"
+CFLAGS += -DIPC_UIO_MODULE_NAME=\"$(ko_name)\"
 
 # object file list
 objs = common/ipc-shm.o common/ipc-queue.o os/ipc-os.o
@@ -31,7 +41,7 @@ objs = common/ipc-shm.o common/ipc-queue.o os/ipc-os.o
 	$(CC) -c $(CFLAGS) -o $@ $<
 	@echo ' '
 
-$(lib_name): $(objs) 
+$(lib_name): $(objs)
 	@echo 'Building target: $@'
 	$(AR) rcs $(lib_name) $(objs)
 	@echo ' '

@@ -1,6 +1,6 @@
 # SPDX-License-Identifier:	BSD-3-Clause
 #
-# Copyright 2019 NXP Semiconductors
+# Copyright 2019 NXP
 #
 
 # The following variables must be defined by caller:
@@ -8,6 +8,8 @@
 #  KERNELDIR    : Linux kernel source code location
 
 MAKEFLAGS += --warn-undefined-variables
+EXTRA_CFLAGS ?=
+EXTRA_LDFLAGS ?=
 .DEFAULT_GOAL := all
 
 ifeq ($(CROSS_COMPILE),)
@@ -28,7 +30,9 @@ elf_name := ipc-shm-sample.elf
 libipc_dir ?= $(shell pwd)/..
 
 CFLAGS += -Wall -g -I$(libipc_dir)/common -DCONFIG_SOC_$(PLATFORM) #-DDEBUG
+CFLAGS += $(EXTRA_CFLAGS)
 LDFLAGS += -L$(libipc_dir) -lipc-shm -lpthread -lrt
+LDFLAGS += $(EXTRA_LDFLAGS)
 
 # object file list
 objs = sample.o
