@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: BSD-3-Clause */
 /*
- * Copyright 2019 NXP
+ * Copyright 2019-2020 NXP
  */
 #include <errno.h>
 #include <stdint.h>
@@ -9,6 +9,7 @@
 #include <assert.h>
 #include <stdlib.h>
 #include <semaphore.h>
+#include <signal.h>
 
 #include "ipc-shm.h"
 
@@ -334,9 +335,18 @@ static int run_demo(int num_msgs)
 	return 0;
 }
 
+/*
+ * interrupt signal handler for terminating the sample execution gracefully
+ */
+void int_handler(int signum)
+{
+	app.num_msgs = 0;
+}
+
 int main(int argc, char *argv[])
 {
 	int err = 0;
+	struct sigaction sig_action;
 
 	sem_init(&app.sema, 0, 0);
 
@@ -345,24 +355,28 @@ int main(int argc, char *argv[])
 	if (err)
 		return err;
 
+	/* catch interrupt signals to terminate the execution gracefully */
+	sig_action.sa_handler = int_handler;
+	sigaction(SIGINT, &sig_action, NULL);
+
 	app.num_msgs = 1;
 	while (app.num_msgs) {
 		printf("\nInput number of messages to send: ");
 		scanf("%d", &app.num_msgs);
 
-		if (!app.num_msgs) {
-			sample_info("exit\n");
+		if (!app.num_msgs)
 			break;
-		}
 
 		err = run_demo(app.num_msgs);
 		if (err)
-			return err;
+			break;
 	}
 
 	ipc_shm_free();
 
 	sem_destroy(&app.sema);
 
-	return 0;
+	sample_info("exit\n");
+
+	return err;
 }
