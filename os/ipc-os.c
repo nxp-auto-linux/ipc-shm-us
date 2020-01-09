@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: BSD-3-Clause */
 /*
- * Copyright 2019 NXP
+ * Copyright 2019-2020 NXP
  */
 #include <fcntl.h>
 #include <unistd.h>
@@ -17,7 +17,7 @@
 #define IPC_SHM_DEV_UIO_NAME    "/dev/uio0"
 #define IPC_SHM_DEV_MEM_NAME    "/dev/mem"
 
-#define RX_SOFTIRQ_POLICY	SCHED_RR
+#define RX_SOFTIRQ_POLICY	SCHED_FIFO
 
 /* system call wrappers for loading and unloading kernel modules */
 #define finit_module(fd, param_values, flags) \
