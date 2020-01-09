@@ -4,7 +4,7 @@
 IPCF Shared Memory User-space Sample Application for Linux
 ==========================================================
 
-:Copyright: 2018-2019 NXP
+:Copyright: 2018-2020 NXP
 
 Overview
 ========
@@ -38,9 +38,12 @@ Building with Yocto
     git clone https://source.codeaurora.org/external/autobsps32/ipcf/ipc-shm-us/
     git -C ipc-shm-us submodule update --init
 
-3. Build sample application with IPCF-ShM library::
+3. Build sample application with IPCF-ShM library, providing the location of the
+   IPC UIO kernel module in the target rootfs, e.g.::
 
-    make -C ./ipc-shm-us/sample IPC_UIO_DIR="${PWD}/ipc-shm-us/common/os"
+    make -C ./ipc-shm-us/sample IPC_UIO_MODULE_DIR="/lib/modules/<kernel-release>/extra"
+
+   where <kernel-release> can be obtained executing `uname -r` in the target board.
 
 Building manually
 -----------------
@@ -57,21 +60,24 @@ Building manually
     make -C ./linux
     make -C ./ipc-shm KERNELDIR=./linux modules
 
-3. Build sample application with IPCF-ShM library::
+3. Build sample application with IPCF-ShM library, providing the location of the
+   IPC UIO kernel module in the target rootfs, e.g.::
 
-    make -C ./ipc-shm-us/sample IPC_UIO_DIR="${PWD}/ipc-shm/os"
+    make -C ./ipc-shm-us/sample IPC_UIO_MODULE_DIR="/lib/modules/<kernel-release>/extra"
+
+   where <kernel-release> can be obtained executing `uname -r` in the target board.
 
 .. _run-shm-us-linux:
 
 Running the application
 =======================
-1. Copy ipc-shm-uio.ko and ipc-shm-sample.elf in the same directory in rootfs.
+1. Copy ipc-shm-sample.elf to the target board rootfs. In case of building the
+   sample manually, also copy IPC UIO kernel module (ipc-shm-uio.ko) to the
+   directory provided during compilation via IPC_UIO_MODULE_DIR.
 
 Notes:
-  if building with yocto please copy ipc-shm-uio.ko from default build
-  directory to rootfs::
-
-    cp  /lib/modules/`uname -r`/extra/ipc-shm-uio.ko <elf-dir>
+  IPC UIO kernel module must be located in the same directory as provided via
+  IPC_UIO_MODULE_DIR when building the sample.
 
 2. Boot Linux: for silicon, see section "How to boot" from Auto Linux BSP user
    manual.

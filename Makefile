@@ -1,6 +1,6 @@
 # SPDX-License-Identifier:	BSD-3-Clause
 #
-# Copyright 2019 NXP
+# Copyright 2019-2020 NXP
 #
 MAKEFLAGS += --warn-undefined-variables
 EXTRA_CFLAGS ?=
@@ -9,29 +9,27 @@ ifeq ($(CROSS_COMPILE),)
 $(error CROSS_COMPILE is not set!)
 endif
 
-# IPC_UIO_DIR needed to include ipc-uio.h
-ifeq ($(IPC_UIO_DIR),)
-$(error IPC_UIO_DIR is not set!)
+# IPC_UIO_MODULE_DIR needed for automatically inserting kernel module
+IPC_UIO_MODULE_DIR ?=
+ifeq ($(IPC_UIO_MODULE_DIR),)
+IPC_UIO_MODULE_DIR := .
+$(info IPC_UIO_MODULE_DIR is not set! using default value)
 endif
-$(info IPC_UIO_DIR = $(IPC_UIO_DIR))
+$(info IPC_UIO_MODULE_DIR = $(IPC_UIO_MODULE_DIR))
 
 CC := $(CROSS_COMPILE)gcc
 AR := $(CROSS_COMPILE)ar
 RM := rm -f
 
-includes := -I./common -I./hw -I./os -I$(IPC_UIO_DIR)
+includes := -I./common -I./hw -I./os -I./common/os
 CFLAGS += -Wall -g $(includes) #-DDEBUG
 CFLAGS += $(EXTRA_CFLAGS)
 
 lib_name = libipc-shm.a
 
-# path to ipc-shm-uio.ko needed for auto-inserting the module
-IPC_UIO_MODULE_PATH ?= ./ipc-shm-uio.ko
-
-ko_basename := $(notdir $(IPC_UIO_MODULE_PATH))
-ko_name := $(shell echo $(ko_basename) | tr '-' '_' | sed -e 's/.ko//')
-CFLAGS += -DIPC_UIO_MODULE_PATH=\"$(IPC_UIO_MODULE_PATH)\"
-CFLAGS += -DIPC_UIO_MODULE_NAME=\"$(ko_name)\"
+ipc_uio_name = ipc-shm-uio
+CFLAGS += -DIPC_UIO_MODULE_PATH=\"$(IPC_UIO_MODULE_DIR)/$(ipc_uio_name).ko\"
+CFLAGS += -DIPC_UIO_MODULE_NAME=\"$(shell echo $(ipc_uio_name) | tr '-' '_')\"
 
 # object file list
 objs = common/ipc-shm.o common/ipc-queue.o os/ipc-os.o

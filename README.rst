@@ -4,7 +4,7 @@
 IPCF Shared Memory User-space Driver for Linux
 ==============================================
 
-:Copyright: 2018-2019 NXP
+:Copyright: 2018-2020 NXP
 
 Overview
 ========
@@ -33,7 +33,7 @@ Memory Kernel Driver for Linux".
 
 The user-space static library (libipc-shm) will automatically insert the IPC UIO
 kernel module at initialization time. The path to the kernel module can be
-overwritten at compile time by setting IPC_UIO_MODULE_PATH variable from the
+overwritten at compile time by setting IPC_UIO_MODULE_DIR variable from the
 caller.
 
 Cautions
