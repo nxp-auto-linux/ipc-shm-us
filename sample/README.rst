@@ -27,10 +27,10 @@ Building with Yocto
 -------------------
 1. Follow the steps for building NXP Auto Linux BSP with Yocto:
 
-- https://source.codeaurora.org/external/autobsps32/auto_yocto_bsp/tree/README?h=release%2Fbsp22.0
-- use branch release/bsp22.0 and replace in build/sources/meta-alb/recipes-kernel/ipc-shm/ipc-shm.bb::
+- https://source.codeaurora.org/external/autobsps32/auto_yocto_bsp/tree/README?h=release%2Fbsp23.0
+- use branch release/bsp23.0 and replace in build/sources/meta-alb/recipes-kernel/ipc-shm/ipc-shm.bb::
 
-    SRCREV = "4aa531d647de951d53d60a1313a356096d1092cd" with
+    SRCREV = "af9a41d262a57a2c3f4be0f4042adc10b47ffdd6" with
     SRCREV = "a32bb41885c21fd440385c2a382a672d40d2397f"
 
 2. Get IPCF-ShM user-space driver from Code Aurora::
@@ -49,7 +49,7 @@ Building manually
 -----------------
 1. Get NXP Auto Linux kernel and IPCF driver from Code Aurora::
 
-    git clone https://source.codeaurora.org/external/autobsps32/linux/ -b release/bsp22.0
+    git clone https://source.codeaurora.org/external/autobsps32/linux/ -b release/bsp23.0
     git clone https://source.codeaurora.org/external/autobsps32/ipcf/ipc-shm/
     git clone https://source.codeaurora.org/external/autobsps32/ipcf/ipc-shm-us/
     git -C ipc-shm-us submodule update --init
