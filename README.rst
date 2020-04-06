@@ -23,8 +23,7 @@ The source code of this Linux driver is published on `source.codeaurora.org
 
 HW platforms
 ============
-The driver includes support of the following platforms:
- - S32V234 silicon, cut 2.1, maskset #1N81U
+The supported processors are listed in the sample application documentation.
 
 Configuration notes
 ===================
@@ -32,9 +31,9 @@ For hardware configuration, please see Configuration Notes from "IPCF Shared
 Memory Kernel Driver for Linux".
 
 The user-space static library (libipc-shm) will automatically insert the IPC UIO
-kernel module at initialization time. The path to the kernel module can be
-overwritten at compile time by setting IPC_UIO_MODULE_DIR variable from the
-caller.
+kernel module at initialization time. The path to the kernel module in the
+target board roofs can be overwritten at compile time by setting IPC_UIO_MODULE_DIR
+variable from the caller.
 
 Cautions
 ========
