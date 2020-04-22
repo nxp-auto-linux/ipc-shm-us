@@ -28,24 +28,36 @@ Building with Yocto
 1. Follow the steps for building NXP Auto Linux BSP with Yocto:
   https://source.codeaurora.org/external/autobsps32/auto_yocto_bsp/tree/README
 
-- for S32V234 use branch release/bsp23.0 and replace in build/sources/meta-alb/recipes-kernel/ipc-shm/ipc-shm.bb::
+* for S32V234 use branch release/bsp23.0 and modify build/sources/meta-alb/recipes-kernel/ipc-shm/ipc-shm.bb::
 
     - SRCREV = "af9a41d262a57a2c3f4be0f4042adc10b47ffdd6"
     + SRCREV = "a32bb41885c21fd440385c2a382a672d40d2397f"
 
-- for S32G274A or S32R45X, use branch release/bsp24.0 and replace in build/sources/meta-alb/recipes-kernel/ipc-shm/ipc-shm.bb::
+    + KERNEL_MODULE_PROBECONF += "ipc-shm-uio"
+    + module_conf_ipc-shm-uio = "blacklist ipc-shm-uio"
+    + FILES_${PN} += "${sysconfdir}/modprobe.d/*"
 
-    - SRCREV = "a32bb41885c21fd440385c2a382a672d40d2397f"
-    + SRCREV = "90d0aa48d557ae8099ae39553e0ba0154f8b5f28"
+* for S32G274A or S32R45X, use branch release/bsp24.0 and do the following modifications:
 
-  and::
+  * in build/sources/meta-alb/recipes-kernel/ipc-shm/ipc-shm.bb::
 
-    - PROVIDES_append_s32v2xx = " kernel-module-ipc-shm-uio${KERNEL_MODULE_PACKAGE_SUFFIX}"
-    - RPROVIDES_${PN}_append_s32v2xx = " kernel-module-ipc-shm-uio${KERNEL_MODULE_PACKAGE_SUFFIX}"
-    + PROVIDES_append = " kernel-module-ipc-shm-uio${KERNEL_MODULE_PACKAGE_SUFFIX}"
-    + RPROVIDES_${PN}_append = " kernel-module-ipc-shm-uio${KERNEL_MODULE_PACKAGE_SUFFIX}"
+     - SRCREV = "a32bb41885c21fd440385c2a382a672d40d2397f"
+     + SRCREV = "90d0aa48d557ae8099ae39553e0ba0154f8b5f28"
 
-- enable User-space I/O driver, e.g.::
+     - PROVIDES_append_s32v2xx = " kernel-module-ipc-shm-uio${KERNEL_MODULE_PACKAGE_SUFFIX}"
+     - RPROVIDES_${PN}_append_s32v2xx = " kernel-module-ipc-shm-uio${KERNEL_MODULE_PACKAGE_SUFFIX}"
+     + PROVIDES_append = " kernel-module-ipc-shm-uio${KERNEL_MODULE_PACKAGE_SUFFIX}"
+     + RPROVIDES_${PN}_append = " kernel-module-ipc-shm-uio${KERNEL_MODULE_PACKAGE_SUFFIX}"
+
+     + KERNEL_MODULE_PROBECONF += "ipc-shm-uio"
+     + module_conf_ipc-shm-uio = "blacklist ipc-shm-uio"
+     + FILES_${PN} += "${sysconfdir}/modprobe.d/*"
+
+  * in build/sources/meta-alb/recipes-fsl/images/fsl-image-s32-common.inc::
+
+     + IMAGE_INSTALL_append_s32r45xevb += " ipc-shm "
+
+* enable User-space I/O driver, e.g.::
 
     bitbake virtual/kernel -c menuconfig
 
@@ -54,7 +66,7 @@ Building with Yocto
     device driver --->
     {*} Userspace I/O drivers
 
-- use image fsl-image-auto with any of the following machines supported for IPCF:
+* use image fsl-image-auto with any of the following machines supported for IPCF:
   s32g274aevb, s32r45xevb, s32v234evb.
 
 2. Get IPCF-ShM user-space driver from Code Aurora::
