@@ -37,7 +37,7 @@ Building with Yocto
     + module_conf_ipc-shm-uio = "blacklist ipc-shm-uio"
     + FILES_${PN} += "${sysconfdir}/modprobe.d/*"
 
-* for S32G274A or S32R45X, use branch release/bsp24.0 and do the following modifications:
+* for S32R45X use branch release/bsp24.0 and do the following modifications:
 
   * in build/sources/meta-alb/recipes-kernel/ipc-shm/ipc-shm.bb::
 
@@ -56,6 +56,8 @@ Building with Yocto
   * in build/sources/meta-alb/recipes-fsl/images/fsl-image-s32-common.inc::
 
      + IMAGE_INSTALL_append_s32r45xevb += " ipc-shm "
+
+* for S32G274A use branch release/bsp27.0
 
 * enable User-space I/O driver, e.g.::
 
