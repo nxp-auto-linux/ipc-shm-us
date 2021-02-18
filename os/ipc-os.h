@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: BSD-3-Clause */
 /*
- * Copyright 2019 NXP
+ * Copyright 2019,2021 NXP
  */
 #ifndef IPC_OS_H
 #define IPC_OS_H
@@ -36,5 +36,6 @@ int ipc_os_init(const struct ipc_shm_cfg *cfg, int (*rx_cb)(int));
 void ipc_os_free(void);
 uintptr_t ipc_os_get_local_shm(void);
 uintptr_t ipc_os_get_remote_shm(void);
+int ipc_os_poll_channels(void);
 
 #endif /* IPC_OS_H */

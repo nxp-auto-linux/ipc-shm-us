@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: BSD-3-Clause */
 /*
- * Copyright 2019-2020 NXP
+ * Copyright 2019-2021 NXP
  */
 #include <fcntl.h>
 #include <unistd.h>
@@ -264,6 +264,18 @@ uintptr_t ipc_os_get_local_shm(void)
 uintptr_t ipc_os_get_remote_shm(void)
 {
 	return (uintptr_t)priv.remote_virt_shm;
+}
+
+/**
+ * ipc_os_poll_channels() - invoke rx callback configured at initialization
+ *
+ * Not implemented for Linux.
+ *
+ * Return: work done, error code otherwise
+ */
+int ipc_os_poll_channels(void)
+{
+	return -EOPNOTSUPP;
 }
 
 static void ipc_send_uio_cmd(uint32_t uio_fd, int32_t cmd)
