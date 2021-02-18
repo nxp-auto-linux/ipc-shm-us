@@ -1,11 +1,14 @@
 # SPDX-License-Identifier:	BSD-3-Clause
 #
-# Copyright 2019 NXP
+# Copyright 2019,2021 NXP
 #
 
 # The following variables must be defined by caller:
 #  CROSS_COMPILE: cross compiler path and prefix
 #  KERNELDIR    : Linux kernel source code location
+# Optional parameters:
+#  polling      : set yo 'yes' to disable tx interrupt if
+#                 remote sample application use polling
 
 MAKEFLAGS += --warn-undefined-variables
 EXTRA_CFLAGS ?=
@@ -21,6 +24,11 @@ PLATFORM ?= S32V234
 
 ifeq ($(filter-out $(PLATFORM),$(platforms)),$(platforms))
     $(error Set PLATFORM variable to a supported platform: '$(platforms)')
+endif
+
+polling ?= no
+ifeq ($(polling),yes)
+CFLAGS += -DPOLLING
 endif
 
 CC := $(CROSS_COMPILE)gcc
