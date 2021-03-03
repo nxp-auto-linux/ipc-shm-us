@@ -4,7 +4,7 @@
 IPCF Shared Memory User-space Sample Application for Linux
 ==========================================================
 
-:Copyright: 2018-2020 NXP
+:Copyright: 2018-2021 NXP
 
 Overview
 ========
@@ -103,13 +103,17 @@ Building manually
     device driver --->
     {*} Userspace I/O drivers
 
-3. Export CROSS_COMPILE variable and build modules providing kernel source location::
+3. Export CROSS_COMPILE and ARCH variables and build Linux kernel, e.g.::
 
     export CROSS_COMPILE=/<toolchain-path>/aarch64-linux-gnu-
+    export ARCH=arm64
     make -C ./linux
-    make -C ./ipc-shm-us/common KERNELDIR=./linux modules
 
-4. Build sample application with IPCF-ShM library, providing the location of the
+4. Build IPCF-ShM driver modules providing kernel source location, e.g.::
+
+    make -C ./ipc-shm-us/common KERNELDIR=$PWD/linux modules
+
+5. Build sample application with IPCF-ShM library, providing the location of the
    IPC UIO kernel module in the target board rootfs and the platform name, e.g.::
 
     make -C ./ipc-shm-us/sample PLATFORM=S32V234 IPC_UIO_MODULE_DIR="/lib/modules/<kernel-release>/extra"
