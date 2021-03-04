@@ -17,6 +17,8 @@
 #define IPC_SHM_DEV_UIO_NAME    "/dev/uio0"
 #define IPC_SHM_DEV_MEM_NAME    "/dev/mem"
 
+#define IPC_UIO_PARAMS_LEN      130
+
 #define RX_SOFTIRQ_POLICY	SCHED_FIFO
 
 /* system call wrappers for loading and unloading kernel modules */
@@ -94,7 +96,7 @@ int ipc_os_init(const struct ipc_shm_cfg *cfg, int (*rx_cb)(int))
 	off_t page_phys_addr;
 	int err;
 	int ipc_uio_module_fd;
-	char ipc_uio_params[80];
+	char ipc_uio_params[IPC_UIO_PARAMS_LEN];
 	struct sched_param irq_thread_param;
 	pthread_attr_t irq_thread_attr;
 
@@ -113,10 +115,13 @@ int ipc_os_init(const struct ipc_shm_cfg *cfg, int (*rx_cb)(int))
 	}
 
 	/* load ipc-uio kernel module passing down hw initialization params */
-	sprintf(ipc_uio_params,
-		"inter_core_tx_irq=%d inter_core_rx_irq=%d remote_core_index=%d",
+	snprintf(ipc_uio_params, IPC_UIO_PARAMS_LEN,
+		"inter_core_tx_irq=%d inter_core_rx_irq=%d "
+		"remote_core_type=%d remote_core_index=%d "
+		"local_core_type=%d local_core_index=%d",
 		cfg->inter_core_tx_irq, cfg->inter_core_rx_irq,
-		cfg->remote_core.index);
+		cfg->remote_core.type, cfg->remote_core.index,
+		cfg->local_core.type, cfg->local_core.index);
 	shm_dbg("Loading %s with params: %s\n",
 		IPC_UIO_MODULE_PATH, ipc_uio_params);
 

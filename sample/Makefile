@@ -20,8 +20,6 @@ $(error CROSS_COMPILE is not set!)
 endif
 
 platforms := S32V234 S32GEN1
-PLATFORM ?= S32V234
-
 ifeq ($(filter-out $(PLATFORM),$(platforms)),$(platforms))
     $(error Set PLATFORM variable to a supported platform: '$(platforms)')
 endif
