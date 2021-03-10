@@ -6,8 +6,9 @@
 # The following variables must be defined by caller:
 #  CROSS_COMPILE: cross compiler path and prefix
 #  KERNELDIR    : Linux kernel source code location
+#  PLATFORM     : platform to build for
 # Optional parameters:
-#  polling      : set yo 'yes' to disable tx interrupt if
+#  POLLING      : set yo 'yes' to disable tx interrupt if
 #                 remote sample application use polling
 
 MAKEFLAGS += --warn-undefined-variables
@@ -24,8 +25,8 @@ ifeq ($(filter-out $(PLATFORM),$(platforms)),$(platforms))
     $(error Set PLATFORM variable to a supported platform: '$(platforms)')
 endif
 
-polling ?= no
-ifeq ($(polling),yes)
+POLLING ?= no
+ifeq ($(POLLING),yes)
 CFLAGS += -DPOLLING
 endif
 

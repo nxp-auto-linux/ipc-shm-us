@@ -11,13 +11,19 @@ Overview
 This sample application demonstrates a ping-pong message communication with an
 RTOS application, using the user-space shared memory driver.
 
-The sample app initializes the shared memory driver and sends messages to the
-remote app, waiting for a reply after each message is sent. When a reply is
-received from remote app, it wakes up and sends another message.
+The application initializes the shared memory driver and sends messages to the
+remote sample application, waiting for a reply after each message is sent. When
+a reply is received from remote application, it wakes up and sends another
+message.
+
+This application can be built to notify the remote application using inter-core
+interrupts (default behavior) or to transmit without notifying the remote
+application. If the latter is used, the remote application polls for available
+messages.
 
 Prerequisites
 =============
- - EVB board for supported processors: S32V234, S32G274A and S32R45X
+ - EVB board for supported processors: S32V234, S32G274A and S32R45
  - NXP Automotive Linux BSP
 
 Building the application
@@ -37,7 +43,7 @@ Building with Yocto
     + module_conf_ipc-shm-uio = "blacklist ipc-shm-uio"
     + FILES_${PN} += "${sysconfdir}/modprobe.d/*"
 
-* for S32R45X use branch release/bsp24.0 and do the following modifications:
+* for S32R45 use branch release/bsp24.0 and do the following modifications:
 
   * in build/sources/meta-alb/recipes-kernel/ipc-shm/ipc-shm.bb::
 
@@ -55,7 +61,7 @@ Building with Yocto
 
   * in build/sources/meta-alb/recipes-fsl/images/fsl-image-s32-common.inc::
 
-     + IMAGE_INSTALL_append_s32r45xevb += " ipc-shm "
+     + IMAGE_INSTALL_append_s32r45evb += " ipc-shm "
 
 * for S32G274A use branch release/bsp27.0
 
@@ -69,7 +75,7 @@ Building with Yocto
     {*} Userspace I/O drivers
 
 * use image fsl-image-auto with any of the following machines supported for IPCF:
-  s32g274aevb, s32r45xevb, s32v234evb.
+  s32g274aevb, s32r45evb, s32v234evb.
 
 2. Get IPCF-ShM user-space driver from Code Aurora::
 
@@ -81,8 +87,8 @@ Building with Yocto
 
     make -C ./ipc-shm-us/sample PLATFORM=S32V234 IPC_UIO_MODULE_DIR="/lib/modules/<kernel-release>/extra"
 
-   where <kernel-release> can be obtained executing `uname -r` in the target board
-   and PLATFORM value can be S32V234 or S32GEN1 (for S32G274A and S32R45X).
+   where <kernel-release> can be obtained executing ``uname -r`` in the target board
+   and PLATFORM value can be S32V234 or S32GEN1 (for S32G274A and S32R45).
 
 Building manually
 -----------------
@@ -92,7 +98,7 @@ Building manually
     git clone https://source.codeaurora.org/external/autobsps32/ipcf/ipc-shm-us/
     git -C ipc-shm-us submodule update --init
 
-- use branch release/bsp23.0 for S32V234 and release/bsp24.0 for S32G274A and S32R45x
+- use branch release/bsp23.0 for S32V234 and release/bsp24.0 for S32G274A and S32R45
 
 2. Configure Linux kernel to enable User-space I/O driver::
 
@@ -119,7 +125,7 @@ Building manually
     make -C ./ipc-shm-us/sample PLATFORM=S32V234 IPC_UIO_MODULE_DIR="/lib/modules/<kernel-release>/extra"
 
    where <kernel-release> can be obtained executing `uname -r` in the target board
-   and PLATFORM value can be S32V234 or S32GEN1 (for S32G274A and S32R45X).
+   and PLATFORM value can be S32V234 or S32GEN1 (for S32G274A and S32R45).
 
 .. _run-shm-us-linux:
 
@@ -146,3 +152,20 @@ Notes:
 Notes:
   To exit the sample, input number of messages 0 or send interrupt signal (e.g.
   Ctrl + C)
+
+Configuration Notes
+===================
+
+Polling
+-------
+In order to compile the shared memory sample application with polling support,
+the makefile parameter ``POLLING`` must be set to ``yes``, e.g.::
+
+    make -C ./ipc-shm-us/sample POLLING=yes PLATFORM=S32GEN1
+
+Notes:
+  The remote sample application must be built with polling support as well.
+  Please refer to the remote sample build instructions for more details.
+
+This sample demonstrates how shared memory polling API can be used to poll for
+incoming messages instead of using inter-core interrupts notifications.
