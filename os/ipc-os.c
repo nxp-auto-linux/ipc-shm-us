@@ -118,10 +118,11 @@ int ipc_os_init(const struct ipc_shm_cfg *cfg, int (*rx_cb)(int))
 	snprintf(ipc_uio_params, IPC_UIO_PARAMS_LEN,
 		"inter_core_tx_irq=%d inter_core_rx_irq=%d "
 		"remote_core_type=%d remote_core_index=%d "
-		"local_core_type=%d local_core_index=%d",
+		"local_core_type=%d local_core_index=%d local_core_trusted=%d",
 		cfg->inter_core_tx_irq, cfg->inter_core_rx_irq,
 		cfg->remote_core.type, cfg->remote_core.index,
-		cfg->local_core.type, cfg->local_core.index);
+		cfg->local_core.type, cfg->local_core.index,
+		cfg->local_core.trusted);
 	shm_dbg("Loading %s with params: %s\n",
 		IPC_UIO_MODULE_PATH, ipc_uio_params);
 
