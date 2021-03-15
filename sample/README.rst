@@ -61,9 +61,12 @@ Building with Yocto
 
   * in build/sources/meta-alb/recipes-fsl/images/fsl-image-s32-common.inc::
 
-     + IMAGE_INSTALL_append_s32r45evb += " ipc-shm "
+     + IMAGE_INSTALL_append_s32r45xevb += " ipc-shm "
 
-* for S32G274A use branch release/bsp27.0
+* for S32G274A use branch release/bsp28.0 and modify build/sources/meta-alb/recipes-kernel/ipc-shm/ipc-shm.bb::
+
+    - SRCREV = "f75873b946dc6e6b8b3612ad2b0d4eb34ffaca68"
+    + SRCREV = "543ec089d014d404b2d31aedffc5ed08f5de87ca"
 
 * enable User-space I/O driver, e.g.::
 
@@ -75,7 +78,7 @@ Building with Yocto
     {*} Userspace I/O drivers
 
 * use image fsl-image-auto with any of the following machines supported for IPCF:
-  s32g274aevb, s32r45evb, s32v234evb.
+  s32g274aevb, s32r45xevb, s32v234evb.
 
 2. Get IPCF-ShM user-space driver from Code Aurora::
 
