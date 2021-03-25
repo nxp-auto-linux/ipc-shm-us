@@ -23,7 +23,7 @@ messages.
 
 Prerequisites
 =============
- - EVB board for supported processors: S32V234, S32G274A and S32R45
+ - EVB board for supported processors: S32V234, S32GEN1
  - NXP Automotive Linux BSP
 
 Building the application
@@ -31,8 +31,8 @@ Building the application
 
 Building with Yocto
 -------------------
-1. Follow the steps for building NXP Auto Linux BSP with Yocto:
-  https://source.codeaurora.org/external/autobsps32/auto_yocto_bsp/tree/README
+1. Follow the steps for building NXP Auto Linux BSP with Yocto::
+   Linux BSP User Manual from Flexera catalog
 
 * for S32V234 use branch release/bsp23.0 and modify build/sources/meta-alb/recipes-kernel/ipc-shm/ipc-shm.bb::
 
@@ -43,30 +43,18 @@ Building with Yocto
     + module_conf_ipc-shm-uio = "blacklist ipc-shm-uio"
     + FILES_${PN} += "${sysconfdir}/modprobe.d/*"
 
-* for S32R45 use branch release/bsp24.0 and do the following modifications:
+* for S32GEN1 use branch release/**IPCF_RELEASE_NAME** and modify in
+  build/sources/meta-alb/recipes-kernel/ipc-shm/ipc-shm.bb::
 
-  * in build/sources/meta-alb/recipes-kernel/ipc-shm/ipc-shm.bb::
+    - BRANCH ?= "${RELEASE_BASE}"
+    + BRANCH ?= "release/**IPCF_RELEASE_NAME**"
 
-     - SRCREV = "a32bb41885c21fd440385c2a382a672d40d2397f"
-     + SRCREV = "90d0aa48d557ae8099ae39553e0ba0154f8b5f28"
+    - SRCREV = "xxxxxxxxxx"
+    + SRCREV = "${AUTOREV}"
 
-     - PROVIDES_append_s32v2xx = " kernel-module-ipc-shm-uio${KERNEL_MODULE_PACKAGE_SUFFIX}"
-     - RPROVIDES_${PN}_append_s32v2xx = " kernel-module-ipc-shm-uio${KERNEL_MODULE_PACKAGE_SUFFIX}"
-     + PROVIDES_append = " kernel-module-ipc-shm-uio${KERNEL_MODULE_PACKAGE_SUFFIX}"
-     + RPROVIDES_${PN}_append = " kernel-module-ipc-shm-uio${KERNEL_MODULE_PACKAGE_SUFFIX}"
-
-     + KERNEL_MODULE_PROBECONF += "ipc-shm-uio"
-     + module_conf_ipc-shm-uio = "blacklist ipc-shm-uio"
-     + FILES_${PN} += "${sysconfdir}/modprobe.d/*"
-
-  * in build/sources/meta-alb/recipes-fsl/images/fsl-image-s32-common.inc::
-
-     + IMAGE_INSTALL_append_s32r45xevb += " ipc-shm "
-
-* for S32G274A use branch release/bsp28.0 and modify build/sources/meta-alb/recipes-kernel/ipc-shm/ipc-shm.bb::
-
-    - SRCREV = "f75873b946dc6e6b8b3612ad2b0d4eb34ffaca68"
-    + SRCREV = "543ec089d014d404b2d31aedffc5ed08f5de87ca"
+  where **IPCF_RELEASE_NAME** is the name of Inter-Platform Communication
+  Framework release from Flexera catalog and "xxxxxxxxxx" is the commit ID
+  which must be replaced with "${AUTOREV}"
 
 * enable User-space I/O driver, e.g.::
 
@@ -83,7 +71,7 @@ Building with Yocto
 2. Get IPCF-ShM user-space driver from Code Aurora::
 
     git clone https://source.codeaurora.org/external/autobsps32/ipcf/ipc-shm-us/
-    git -C ipc-shm-us submodule update --init
+    git -C ipc-shm-us submodule update --init --remote
 
 3. Build sample application with IPCF-ShM library, providing the location of the
    IPC UIO kernel module in the target board rootfs and the platform name, e.g.::
@@ -91,17 +79,15 @@ Building with Yocto
     make -C ./ipc-shm-us/sample PLATFORM=S32V234 IPC_UIO_MODULE_DIR="/lib/modules/<kernel-release>/extra"
 
    where <kernel-release> can be obtained executing ``uname -r`` in the target board
-   and PLATFORM value can be S32V234 or S32GEN1 (for S32G274A and S32R45).
+   and PLATFORM value can be S32V234 or S32GEN1.
 
 Building manually
 -----------------
 1. Get NXP Auto Linux kernel and IPCF driver from Code Aurora::
 
-    git clone https://source.codeaurora.org/external/autobsps32/linux/ -b release/bsp23.0
+    git clone https://source.codeaurora.org/external/autobsps32/linux/
     git clone https://source.codeaurora.org/external/autobsps32/ipcf/ipc-shm-us/
-    git -C ipc-shm-us submodule update --init
-
-- use branch release/bsp23.0 for S32V234 and release/bsp24.0 for S32G274A and S32R45
+    git -C ipc-shm-us submodule update --init --remote
 
 2. Configure Linux kernel to enable User-space I/O driver::
 
@@ -116,6 +102,7 @@ Building manually
 
     export CROSS_COMPILE=/<toolchain-path>/aarch64-linux-gnu-
     export ARCH=arm64
+    make -C ./linux s32gen1_defconfig
     make -C ./linux
 
 4. Build IPCF-ShM driver modules providing kernel source location, e.g.::
@@ -128,7 +115,7 @@ Building manually
     make -C ./ipc-shm-us/sample PLATFORM=S32V234 IPC_UIO_MODULE_DIR="/lib/modules/<kernel-release>/extra"
 
    where <kernel-release> can be obtained executing `uname -r` in the target board
-   and PLATFORM value can be S32V234 or S32GEN1 (for S32G274A and S32R45).
+   and PLATFORM value can be S32V234 or S32GEN1.
 
 .. _run-shm-us-linux:
 
