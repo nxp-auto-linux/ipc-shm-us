@@ -1,5 +1,5 @@
 [submodule "common"]
 	path = common
 	url = https://source.codeaurora.org/external/autobsps32/ipcf/ipc-shm
-	branch = master
+	branch = release/SW32G2_IPCF_2.1.1_D2103
 	ignore = all
