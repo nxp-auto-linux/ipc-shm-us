@@ -10,8 +10,13 @@
 #include <stdlib.h>
 #include <semaphore.h>
 #include <signal.h>
+#include <sys/mman.h>
+#include <unistd.h>
+#include <fcntl.h>
 
 #include "ipc-shm.h"
+
+#define IPC_SHM_DEV_MEM_NAME    "/dev/mem"
 
 /* IPC SHM configuration defines */
 #if defined(CONFIG_SOC_S32GEN1)
@@ -31,7 +36,7 @@
 #endif /* POLLING */
 #define INTER_CORE_RX_IRQ 1u
 
-#define S_BUF_LEN 16
+#define S_BUF_LEN 32
 #define M_BUF_LEN 256
 #define L_BUF_LEN 4096
 #define CTRL_CHAN_ID 0
@@ -56,20 +61,30 @@ static int msg_sizes_count = 1;
 
 /**
  * struct ipc_sample_app - sample app private data
- * @num_channels:	number of channels configured in this sample
- * @num_msgs:		number of messages to be sent to remote app
- * @ctrl_shm:		control channel local shared memory
- * @last_tx_msg:	last transmitted message
- * @last_rx_msg:	last received message
- * @sema:		binary semaphore for sync send_msg func with shm_rx_cb
- * @instance:		instance id
+ * @num_channels:		number of channels configured in this sample
+ * @num_msgs:			number of messages to be sent to remote app
+ * @ctrl_shm:			control channel local shared memory
+ * @last_rx_no_msg:		last number of received message
+ * @last_tx_msg:		last transmitted message
+ * @last_rx_msg:		last received message
+ * @local_virt_shm:		local shared memory virtual address
+ * @mem_fd:				MEM device file descriptor
+ * @local_shm_offset:	local ShM offset in mapped page
+ * @local_shm_map:		local ShM mapped page address
+ * @sema:				binary semaphore for sync send_msg func with shm_rx_cb
+ * @instance:			instance id
  */
 static struct ipc_sample_app {
 	int num_channels;
 	int num_msgs;
 	char *ctrl_shm;
+	int last_rx_no_msg;
 	char last_tx_msg[L_BUF_LEN];
 	char last_rx_msg[L_BUF_LEN];
+	int *local_virt_shm;
+	int mem_fd;
+	size_t local_shm_offset;
+	int *local_shm_map;
 	sem_t sema;
 	uint8_t instance;
 } app;
@@ -182,6 +197,7 @@ static void data_chan_rx_cb(void *arg, const uint8_t instance, int chan_id,
 		void *buf, size_t size)
 {
 	int err = 0;
+	char *endptr;
 
 	assert(arg == &app);
 	assert(size <= L_BUF_LEN);
@@ -189,6 +205,10 @@ static void data_chan_rx_cb(void *arg, const uint8_t instance, int chan_id,
 	/* process the received data */
 	memcpy(app.last_rx_msg, buf, size);
 	sample_info("ch %d << %ld bytes: %s\n", chan_id, size, app.last_rx_msg);
+
+	/* consume received data: get number of message */
+	/* Note: without being copied locally */
+	app.last_rx_no_msg = strtol((char *)buf + strlen("#"), &endptr, 10);
 
 	/* release the buffer */
 	err = ipc_shm_release_buf(instance, chan_id, buf);
@@ -255,21 +275,11 @@ static int send_ctrl_msg(const uint8_t instance)
  *
  * Generate message by repeated concatenation of a pattern
  */
-static void generate_msg(void *dest, int len, int msg_no)
+static void generate_msg(char *dest, int len, int msg_no)
 {
-	static char *pattern = "Hello world! ";
-	/* temp buffer for string operations that do unaligned SRAM accesses */
-	char tmp[L_BUF_LEN] = {0};
+	static char *msg_pattern = "HELLO WORLD!";
 
-	sprintf(tmp, "#%d ", msg_no);
-
-	/* copy pattern as many times it fits in dest buffer */
-	while (strlen(tmp) < len) {
-		strncpy(tmp + strlen(tmp), pattern, len - strlen(tmp));
-	}
-	tmp[len - 1] = '\0';
-
-	memcpy(dest, tmp, len);
+	snprintf(dest, len, "#%d %s\0", msg_no, msg_pattern);
 }
 
 /**
@@ -319,10 +329,10 @@ static int send_data_msg(const uint8_t instance, int msg_len, int msg_no,
 	}
 
 	/* check if received message match with sent message */
-	if (strcmp(app.last_rx_msg, app.last_tx_msg) != 0) {
-		sample_err("last rx msg != last tx msg\n");
-		sample_err(">> %s\n", app.last_tx_msg);
-		sample_err("<< %s\n", app.last_rx_msg);
+	if (app.last_rx_no_msg != msg_no) {
+		sample_err("last_rx_no_msg != msg_no\n");
+		sample_err(">> #%d\n", msg_no);
+		sample_err("<< #%d\n", app.last_rx_no_msg);
 		return -EINVAL;
 	}
 
@@ -348,7 +358,7 @@ static int run_demo(int num_msgs)
 		for (ch = CTRL_CHAN_ID + 1; ch < app.num_channels; ch++) {
 			for (i = 0; i < msg_sizes_count; i++) {
 				err = send_data_msg(app.instance,
-						msg_sizes[i], msg + 1, ch);
+						msg_sizes[i], msg, ch);
 				if (err)
 					return err;
 
@@ -377,6 +387,11 @@ int main(int argc, char *argv[])
 	int err = 0;
 	struct sigaction sig_action;
 	app.instance = 0;
+	size_t page_size = sysconf(_SC_PAGE_SIZE);
+	off_t page_phys_addr;
+	uintptr_t local_shm_addr = LOCAL_SHM_ADDR;
+	uint32_t shm_size = IPC_SHM_SIZE;
+	int tmp[IPC_SHM_SIZE] = {0};
 
 	sem_init(&app.sema, 0, 0);
 
@@ -403,6 +418,21 @@ int main(int argc, char *argv[])
 	}
 
 	ipc_shm_free();
+
+	/* Clear memory to re-init driver */
+	page_phys_addr = (local_shm_addr / page_size) * page_size;
+	app.local_shm_offset = local_shm_addr - page_phys_addr;
+	app.mem_fd = open(IPC_SHM_DEV_MEM_NAME, O_RDWR);
+
+	app.local_shm_map = mmap(NULL, app.local_shm_offset + shm_size,
+				  PROT_READ | PROT_WRITE, MAP_SHARED,
+				  app.mem_fd, page_phys_addr);
+
+	app.local_virt_shm = app.local_shm_map + app.local_shm_offset;
+
+	memcpy(app.local_virt_shm, tmp, IPC_SHM_SIZE);
+	munmap(app.local_shm_map, app.local_shm_offset + shm_size);
+	close(app.mem_fd);
 
 	sem_destroy(&app.sema);
 
