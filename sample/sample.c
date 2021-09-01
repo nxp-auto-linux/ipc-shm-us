@@ -62,6 +62,7 @@ static int msg_sizes_count = 1;
  * @last_tx_msg:	last transmitted message
  * @last_rx_msg:	last received message
  * @sema:		binary semaphore for sync send_msg func with shm_rx_cb
+ * @instance:		instance id
  */
 static struct ipc_sample_app {
 	int num_channels;
@@ -70,10 +71,14 @@ static struct ipc_sample_app {
 	char last_tx_msg[L_BUF_LEN];
 	char last_rx_msg[L_BUF_LEN];
 	sem_t sema;
+	uint8_t instance;
 } app;
 
-static void data_chan_rx_cb(void *cb_arg, int chan_id, void *buf, size_t size);
-static void ctrl_chan_rx_cb(void *cb_arg, int chan_id, void *mem);
+/* sample Rx callbacks */
+static void data_chan_rx_cb(void *cb_arg, const uint8_t instance, int chan_id,
+		void *buf, size_t size);
+static void ctrl_chan_rx_cb(void *cb_arg, const uint8_t instance, int chan_id,
+		void *mem);
 
 /* Init IPC shared memory driver (see ipc-shm.h for API) */
 static int init_ipc_shm(void)
@@ -126,7 +131,8 @@ static int init_ipc_shm(void)
 						 data_chan_cfg, data_chan_cfg};
 
 	/* ipc shm configuration */
-	struct ipc_shm_cfg shm_cfg = {
+	struct ipc_shm_cfg shm_cfg[1] = {
+		{
 		.local_shm_addr = LOCAL_SHM_ADDR,
 		.remote_shm_addr = REMOTE_SHM_ADDR,
 		.shm_size = IPC_SHM_SIZE,
@@ -144,16 +150,22 @@ static int init_ipc_shm(void)
 		},
 		.num_channels = ARRAY_SIZE(channels),
 		.channels = channels
+		},
 	};
 
-	err = ipc_shm_init(&shm_cfg);
+	struct ipc_shm_instances_cfg shm_cfgs = {
+		.num_instances = 1u,
+		.shm_cfg = shm_cfg,
+	};
+
+	err = ipc_shm_init(&shm_cfgs);
 	if (err)
 		return err;
 
-	app.num_channels = shm_cfg.num_channels;
+	app.num_channels = shm_cfgs.shm_cfg[0].num_channels;
 
 	/* acquire control channel memory once */
-	app.ctrl_shm = ipc_shm_unmanaged_acquire(CTRL_CHAN_ID);
+	app.ctrl_shm = ipc_shm_unmanaged_acquire(app.instance, CTRL_CHAN_ID);
 	if (!app.ctrl_shm) {
 		sample_err("failed to get memory of control channel");
 		return -ENOMEM;
@@ -166,7 +178,8 @@ static int init_ipc_shm(void)
  * data channel Rx callback: print message, release buffer and signal the
  * completion variable.
  */
-static void data_chan_rx_cb(void *arg, int chan_id, void *buf, size_t size)
+static void data_chan_rx_cb(void *arg, const uint8_t instance, int chan_id,
+		void *buf, size_t size)
 {
 	int err = 0;
 
@@ -178,7 +191,7 @@ static void data_chan_rx_cb(void *arg, int chan_id, void *buf, size_t size)
 	sample_info("ch %d << %ld bytes: %s\n", chan_id, size, app.last_rx_msg);
 
 	/* release the buffer */
-	err = ipc_shm_release_buf(chan_id, buf);
+	err = ipc_shm_release_buf(instance, chan_id, buf);
 	if (err) {
 		sample_err("failed to free buffer for channel %d,"
 			    "err code %d\n", chan_id, err);
@@ -191,7 +204,8 @@ static void data_chan_rx_cb(void *arg, int chan_id, void *buf, size_t size)
 /*
  * control channel Rx callback: print control message
  */
-static void ctrl_chan_rx_cb(void *arg, int chan_id, void *mem)
+static void ctrl_chan_rx_cb(void *arg, const uint8_t instance, int chan_id,
+		void *mem)
 {
 	/* temp buffer for string operations that do unaligned SRAM accesses */
 	char tmp[CTRL_CHAN_SIZE] = {0};
@@ -209,7 +223,7 @@ static void ctrl_chan_rx_cb(void *arg, int chan_id, void *mem)
 }
 
 /* send control message with number of data messages to be sent */
-static int send_ctrl_msg(void)
+static int send_ctrl_msg(const uint8_t instance)
 {
 	/* last channel is control channel */
 	const int chan_id = CTRL_CHAN_ID;
@@ -224,7 +238,7 @@ static int send_ctrl_msg(void)
 	sample_info("ch %d >> %ld bytes: %s\n", chan_id, strlen(tmp), tmp);
 
 	/* notify remote */
-	err = ipc_shm_unmanaged_tx(chan_id);
+	err = ipc_shm_unmanaged_tx(instance, chan_id);
 	if (err) {
 		sample_err("tx failed on control channel");
 		return err;
@@ -260,18 +274,20 @@ static void generate_msg(void *dest, int len, int msg_no)
 
 /**
  * send_data_msg() - Send generated data message to remote peer
+ * @instance: instance id
  * @msg_len: message length
  * @msg_no: message sequence number to be written in the test message
  * @chan_id: ipc channel to be used for remote CPU communication
  *
  * It uses a completion variable for synchronization with reply callback.
  */
-static int send_data_msg(int msg_len, int msg_no, int chan_id)
+static int send_data_msg(const uint8_t instance, int msg_len, int msg_no,
+		int chan_id)
 {
 	int err = 0;
 	char *buf = NULL;
 
-	buf = ipc_shm_acquire_buf(chan_id, msg_len);
+	buf = ipc_shm_acquire_buf(instance, chan_id, msg_len);
 	if (!buf) {
 		sample_err("failed to get buffer for channel ID"
 			   " %d and size %d\n", chan_id, msg_len);
@@ -288,7 +304,7 @@ static int send_data_msg(int msg_len, int msg_no, int chan_id)
 		    app.last_tx_msg);
 
 	/* send data to remote peer */
-	err = ipc_shm_tx(chan_id, buf, msg_len);
+	err = ipc_shm_tx(instance, chan_id, buf, msg_len);
 	if (err) {
 		sample_err("tx failed for channel ID %d, size "
 			   "%d, error code %d\n", 0, msg_len, err);
@@ -322,7 +338,7 @@ static int run_demo(int num_msgs)
 	int err, msg, ch, i;
 
 	/* signal number of messages to remote via control channel */
-	err = send_ctrl_msg();
+	err = send_ctrl_msg(app.instance);
 	if (err)
 		return err;
 
@@ -331,7 +347,8 @@ static int run_demo(int num_msgs)
 	while (msg < num_msgs) {
 		for (ch = CTRL_CHAN_ID + 1; ch < app.num_channels; ch++) {
 			for (i = 0; i < msg_sizes_count; i++) {
-				err = send_data_msg(msg_sizes[i], msg + 1, ch);
+				err = send_data_msg(app.instance,
+						msg_sizes[i], msg + 1, ch);
 				if (err)
 					return err;
 
@@ -359,6 +376,7 @@ int main(int argc, char *argv[])
 {
 	int err = 0;
 	struct sigaction sig_action;
+	app.instance = 0;
 
 	sem_init(&app.sema, 0, 0);
 

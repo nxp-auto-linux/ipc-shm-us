@@ -73,7 +73,7 @@ static void *ipc_shm_softirq(void *arg)
 
 		if (work < budget) {
 			/* work done, re-enable irq */
-			ipc_hw_irq_enable();
+			ipc_hw_irq_enable(0);
 		} else {
 			/* work not done, yield and wait for reschedule */
 			sched_yield();
@@ -85,12 +85,14 @@ static void *ipc_shm_softirq(void *arg)
 
 /**
  * ipc_shm_os_init() - OS specific initialization code
- * @cfg:         configuration parameters
+ * @instance:	instance id
+ * @cfg:	configuration parameters
  * @rx_cb:	Rx callback to be called from Rx softirq
  *
  * Return: 0 on success, error code otherwise
  */
-int ipc_os_init(const struct ipc_shm_cfg *cfg, int (*rx_cb)(int))
+int ipc_os_init(const uint8_t instance, const struct ipc_shm_cfg *cfg,
+		int (*rx_cb)(const uint8_t, int))
 {
 	size_t page_size = sysconf(_SC_PAGE_SIZE);
 	off_t page_phys_addr;
@@ -101,6 +103,10 @@ int ipc_os_init(const struct ipc_shm_cfg *cfg, int (*rx_cb)(int))
 	pthread_attr_t irq_thread_attr;
 
 	if (!rx_cb)
+		return -EINVAL;
+
+	/* multi-instance is not yet implemented */
+	if (instance > 1)
 		return -EINVAL;
 
 	/* save params */
@@ -228,12 +234,12 @@ err_close_ipc_shm_uio:
 /**
  * ipc_os_free() - free OS specific resources
  */
-void ipc_os_free(void)
+void ipc_os_free(const uint8_t instance)
 {
 	void *res;
 
 	/* disable hardirq */
-	ipc_hw_irq_disable();
+	ipc_hw_irq_disable(instance);
 
 	shm_dbg("stopping irq thread\n");
 
@@ -258,7 +264,7 @@ void ipc_os_free(void)
 /**
  * ipc_os_get_local_shm() - get local shared mem address
  */
-uintptr_t ipc_os_get_local_shm(void)
+uintptr_t ipc_os_get_local_shm(const uint8_t instance)
 {
 	return (uintptr_t)priv.local_virt_shm;
 }
@@ -266,7 +272,7 @@ uintptr_t ipc_os_get_local_shm(void)
 /**
  * ipc_os_get_remote_shm() - get remote shared mem address
  */
-uintptr_t ipc_os_get_remote_shm(void)
+uintptr_t ipc_os_get_remote_shm(const uint8_t instance)
 {
 	return (uintptr_t)priv.remote_virt_shm;
 }
@@ -278,7 +284,7 @@ uintptr_t ipc_os_get_remote_shm(void)
  *
  * Return: work done, error code otherwise
  */
-int ipc_os_poll_channels(void)
+int ipc_os_poll_channels(const uint8_t instance)
 {
 	return -EOPNOTSUPP;
 }
@@ -296,7 +302,7 @@ static void ipc_send_uio_cmd(uint32_t uio_fd, int32_t cmd)
 /**
  * ipc_hw_irq_enable() - enable notifications from remote
  */
-void ipc_hw_irq_enable(void)
+void ipc_hw_irq_enable(const uint8_t instance)
 {
 	ipc_send_uio_cmd(priv.uio_fd, IPC_UIO_ENABLE_RX_IRQ_CMD);
 }
@@ -304,7 +310,7 @@ void ipc_hw_irq_enable(void)
 /**
  * ipc_hw_irq_disable() - disable notifications from remote
  */
-void ipc_hw_irq_disable(void)
+void ipc_hw_irq_disable(const uint8_t instance)
 {
 	ipc_send_uio_cmd(priv.uio_fd, IPC_UIO_DISABLE_RX_IRQ_CMD);
 }
@@ -312,18 +318,18 @@ void ipc_hw_irq_disable(void)
 /**
  * ipc_hw_irq_notify() - notify remote that data is available
  */
-void ipc_hw_irq_notify(void)
+void ipc_hw_irq_notify(const uint8_t instance)
 {
 	ipc_send_uio_cmd(priv.uio_fd, IPC_UIO_TRIGGER_TX_IRQ_CMD);
 }
 
-int ipc_hw_init(const struct ipc_shm_cfg *cfg)
+int ipc_hw_init(const uint8_t instance, const struct ipc_shm_cfg *cfg)
 {
 	/* dummy implementation: ipc-hw init is handled by kernel UIO module */
 	return 0;
 }
 
-void ipc_hw_free(void)
+void ipc_hw_free(const uint8_t instance)
 {
 	/* dummy implementation: ipc-hw free is handled by kernel UIO module */
 }
