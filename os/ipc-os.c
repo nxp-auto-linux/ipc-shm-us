@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: BSD-3-Clause */
 /*
- * Copyright 2019-2021 NXP
+ * Copyright 2019-2022 NXP
  */
 #include <fcntl.h>
 #include <unistd.h>
@@ -21,6 +21,11 @@
 
 #define RX_SOFTIRQ_POLICY	SCHED_FIFO
 
+/*
+ * Maximum number of instances
+ */
+#define IPC_SHM_MAX_INSTANCES	4u
+
 /* system call wrappers for loading and unloading kernel modules */
 #define finit_module(fd, param_values, flags) \
 	syscall(__NR_finit_module, fd, param_values, flags)
@@ -28,7 +33,7 @@
 	syscall(__NR_delete_module, name, flags)
 
 /**
- * struct ipc_os_priv - OS specific private data
+ * struct ipc_os_priv_instance - OS specific private data each instance
  * @shm_size:		local/remote ShM size
  * @local_virt_shm:	local ShM virtual address
  * @remote_virt_shm:	remote ShM virtual address
@@ -41,7 +46,7 @@
  * @uio_fd:		UIO device file descriptor
  * @mem_fd:		MEM device file descriptor
  */
-struct ipc_os_priv {
+struct ipc_os_priv_instance {
 	size_t shm_size;
 	void *local_virt_shm;
 	void *remote_virt_shm;
@@ -49,14 +54,21 @@ struct ipc_os_priv {
 	void *remote_shm_map;
 	size_t local_shm_offset;
 	size_t remote_shm_offset;
-	int (*rx_cb)(int budget);
+	int (*rx_cb)(const uint8_t instance, int budget);
 	pthread_t irq_thread_id;
 	int uio_fd;
 	int mem_fd;
 };
 
-/* OS specific private data */
-static struct ipc_os_priv priv;
+/**
+ * struct ipc_os_priv - OS specific private data
+ * @id:             private data per instance
+ * @rx_cb:          upper layer rx callback function
+ */
+static struct ipc_os_priv {
+	struct ipc_os_priv_instance id[IPC_SHM_MAX_INSTANCES];
+	int (*rx_cb)(const uint8_t instance, int budget);
+} priv;
 
 /* Rx sotfirq thread */
 static void *ipc_shm_softirq(void *arg)
@@ -64,19 +76,22 @@ static void *ipc_shm_softirq(void *arg)
 	const int budget = IPC_SOFTIRQ_BUDGET;
 	int irq_count;
 	int work;
+	uint8_t i = 0;
 
 	while (1) {
 		/* block(sleep) until notified from kernel IRQ handler */
-		read(priv.uio_fd, &irq_count, sizeof(irq_count));
+		for (i = 0; i < IPC_SHM_MAX_INSTANCES; i++) {
+			if (priv.id[i].uio_fd != NULL)
+				read(priv.id[i].uio_fd, &irq_count, sizeof(irq_count));
 
-		work = priv.rx_cb(budget);
-
-		if (work < budget) {
-			/* work done, re-enable irq */
-			ipc_hw_irq_enable(0);
-		} else {
-			/* work not done, yield and wait for reschedule */
-			sched_yield();
+			work = priv.rx_cb(i, budget);
+			if (work < budget) {
+				/* work done, re-enable irq */
+				ipc_hw_irq_enable(i);
+			} else {
+				/* work not done, yield and wait for reschedule */
+				sched_yield();
+			}
 		}
 	}
 
@@ -105,12 +120,8 @@ int ipc_os_init(const uint8_t instance, const struct ipc_shm_cfg *cfg,
 	if (!rx_cb)
 		return -EINVAL;
 
-	/* multi-instance is not yet implemented */
-	if (instance > 1)
-		return -EINVAL;
-
 	/* save params */
-	priv.shm_size = cfg->shm_size;
+	priv.id[instance].shm_size = cfg->shm_size;
 	priv.rx_cb = rx_cb;
 
 	/* open ipc-uio kernel module */
@@ -138,8 +149,8 @@ int ipc_os_init(const uint8_t instance, const struct ipc_shm_cfg *cfg,
 	}
 
 	/* open MEM device for interrupt support */
-	priv.mem_fd = open(IPC_SHM_DEV_MEM_NAME, O_RDWR);
-	if (priv.mem_fd == -1) {
+	priv.id[instance].mem_fd = open(IPC_SHM_DEV_MEM_NAME, O_RDWR);
+	if (priv.id[instance].mem_fd == -1) {
 		shm_err("Can't open %s device\n", IPC_SHM_DEV_MEM_NAME);
 		err = -ENODEV;
 		goto err_close_ipc_shm_uio;
@@ -148,37 +159,41 @@ int ipc_os_init(const uint8_t instance, const struct ipc_shm_cfg *cfg,
 	/* map local physical shared memory */
 	/* truncate address to a multiple of page size, or mmap will fail */
 	page_phys_addr = (cfg->local_shm_addr / page_size) * page_size;
-	priv.local_shm_offset = cfg->local_shm_addr - page_phys_addr;
+	priv.id[instance].local_shm_offset = cfg->local_shm_addr - page_phys_addr;
 
-	priv.local_shm_map = mmap(NULL, priv.local_shm_offset + cfg->shm_size,
-				  PROT_READ | PROT_WRITE, MAP_SHARED,
-				  priv.mem_fd, page_phys_addr);
-	if (priv.local_shm_map == MAP_FAILED) {
+	priv.id[instance].local_shm_map = mmap(NULL, priv.id[instance].local_shm_offset
+					+ cfg->shm_size,
+					PROT_READ | PROT_WRITE, MAP_SHARED,
+					priv.id[instance].mem_fd, page_phys_addr);
+	if (priv.id[instance].local_shm_map == MAP_FAILED) {
 		shm_err("Can't map memory: %lx\n", cfg->local_shm_addr);
 		err = -ENOMEM;
 		goto err_close_mem_dev;
 	}
 
-	priv.local_virt_shm = priv.local_shm_map + priv.local_shm_offset;
+	priv.id[instance].local_virt_shm = priv.id[instance].local_shm_map
+						+ priv.id[instance].local_shm_offset;
 
 	/* map remote physical shared memory */
 	page_phys_addr = (cfg->remote_shm_addr / page_size) * page_size;
-	priv.remote_shm_offset = cfg->remote_shm_addr - page_phys_addr;
+	priv.id[instance].remote_shm_offset = cfg->remote_shm_addr - page_phys_addr;
 
-	priv.remote_shm_map = mmap(NULL, priv.remote_shm_offset + cfg->shm_size,
-				   PROT_READ | PROT_WRITE, MAP_SHARED,
-				   priv.mem_fd, page_phys_addr);
-	if (priv.remote_shm_map == MAP_FAILED) {
+	priv.id[instance].remote_shm_map = mmap(NULL, priv.id[instance].remote_shm_offset
+					+ cfg->shm_size,
+					PROT_READ | PROT_WRITE, MAP_SHARED,
+					priv.id[instance].mem_fd, page_phys_addr);
+	if (priv.id[instance].remote_shm_map == MAP_FAILED) {
 		shm_err("Can't map memory: %lx\n", cfg->remote_shm_addr);
 		err = -ENOMEM;
 		goto err_unmap_local_shm;
 	}
 
-	priv.remote_virt_shm = priv.remote_shm_map + priv.remote_shm_offset;
+	priv.id[instance].remote_virt_shm = priv.id[instance].remote_shm_map
+						+ priv.id[instance].remote_shm_offset;
 
 	/* open UIO device for interrupt support */
-	priv.uio_fd = open(IPC_SHM_DEV_UIO_NAME, O_RDWR);
-	if (priv.uio_fd == -1) {
+	priv.id[instance].uio_fd = open(IPC_SHM_DEV_UIO_NAME, O_RDWR);
+	if (priv.id[instance].uio_fd == -1) {
 		shm_err("Can't open %s device\n", IPC_SHM_DEV_UIO_NAME);
 		err = -ENODEV;
 		goto err_unmap_remote_shm;
@@ -205,7 +220,7 @@ int ipc_os_init(const uint8_t instance, const struct ipc_shm_cfg *cfg,
 		shm_err("Can't set Rx softirq scheduler parameters\n");
 	}
 
-	err = pthread_create(&priv.irq_thread_id, &irq_thread_attr,
+	err = pthread_create(&priv.id[instance].irq_thread_id, &irq_thread_attr,
 			     ipc_shm_softirq, &priv);
 	if (err == -1) {
 		shm_err("Can't start Rx softirq thread\n");
@@ -218,13 +233,15 @@ int ipc_os_init(const uint8_t instance, const struct ipc_shm_cfg *cfg,
 	return 0;
 
 err_close_uio_dev:
-	close(priv.uio_fd);
+	close(priv.id[instance].uio_fd);
 err_unmap_remote_shm:
-	munmap(priv.remote_shm_map, priv.remote_shm_offset + priv.shm_size);
+	munmap(priv.id[instance].remote_shm_map,
+			priv.id[instance].remote_shm_offset + priv.id[instance].shm_size);
 err_unmap_local_shm:
-	munmap(priv.local_shm_map, priv.local_shm_offset + priv.shm_size);
+	munmap(priv.id[instance].local_shm_map,
+			priv.id[instance].local_shm_offset + priv.id[instance].shm_size);
 err_close_mem_dev:
-	close(priv.mem_fd);
+	close(priv.id[instance].mem_fd);
 err_close_ipc_shm_uio:
 	close(ipc_uio_module_fd);
 
@@ -244,16 +261,18 @@ void ipc_os_free(const uint8_t instance)
 	shm_dbg("stopping irq thread\n");
 
 	/* stop irq thread */
-	pthread_cancel(priv.irq_thread_id);
-	pthread_join(priv.irq_thread_id, &res);
+	pthread_cancel(priv.id[instance].irq_thread_id);
+	pthread_join(priv.id[instance].irq_thread_id, &res);
 
-	close(priv.uio_fd);
+	close(priv.id[instance].uio_fd);
 
 	/* unmap remote/local shm */
-	munmap(priv.remote_shm_map, priv.remote_shm_offset + priv.shm_size);
-	munmap(priv.local_shm_map, priv.local_shm_offset + priv.shm_size);
+	munmap(priv.id[instance].remote_shm_map,
+			priv.id[instance].remote_shm_offset + priv.id[instance].shm_size);
+	munmap(priv.id[instance].local_shm_map,
+			priv.id[instance].local_shm_offset + priv.id[instance].shm_size);
 
-	close(priv.mem_fd);
+	close(priv.id[instance].mem_fd);
 
 	/* unload ipc-uio kernel module */
 	if (delete_module(IPC_UIO_MODULE_NAME, O_NONBLOCK) != 0) {
@@ -266,7 +285,7 @@ void ipc_os_free(const uint8_t instance)
  */
 uintptr_t ipc_os_get_local_shm(const uint8_t instance)
 {
-	return (uintptr_t)priv.local_virt_shm;
+	return (uintptr_t)priv.id[instance].local_virt_shm;
 }
 
 /**
@@ -274,7 +293,7 @@ uintptr_t ipc_os_get_local_shm(const uint8_t instance)
  */
 uintptr_t ipc_os_get_remote_shm(const uint8_t instance)
 {
-	return (uintptr_t)priv.remote_virt_shm;
+	return (uintptr_t)priv.id[instance].remote_virt_shm;
 }
 
 /**
@@ -304,7 +323,7 @@ static void ipc_send_uio_cmd(uint32_t uio_fd, int32_t cmd)
  */
 void ipc_hw_irq_enable(const uint8_t instance)
 {
-	ipc_send_uio_cmd(priv.uio_fd, IPC_UIO_ENABLE_RX_IRQ_CMD);
+	ipc_send_uio_cmd(priv.id[instance].uio_fd, IPC_UIO_ENABLE_RX_IRQ_CMD);
 }
 
 /**
@@ -312,7 +331,7 @@ void ipc_hw_irq_enable(const uint8_t instance)
  */
 void ipc_hw_irq_disable(const uint8_t instance)
 {
-	ipc_send_uio_cmd(priv.uio_fd, IPC_UIO_DISABLE_RX_IRQ_CMD);
+	ipc_send_uio_cmd(priv.id[instance].uio_fd, IPC_UIO_DISABLE_RX_IRQ_CMD);
 }
 
 /**
@@ -320,7 +339,7 @@ void ipc_hw_irq_disable(const uint8_t instance)
  */
 void ipc_hw_irq_notify(const uint8_t instance)
 {
-	ipc_send_uio_cmd(priv.uio_fd, IPC_UIO_TRIGGER_TX_IRQ_CMD);
+	ipc_send_uio_cmd(priv.id[instance].uio_fd, IPC_UIO_TRIGGER_TX_IRQ_CMD);
 }
 
 int ipc_hw_init(const uint8_t instance, const struct ipc_shm_cfg *cfg)
