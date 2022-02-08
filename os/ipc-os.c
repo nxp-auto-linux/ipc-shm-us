@@ -81,7 +81,7 @@ static void *ipc_shm_softirq(void *arg)
 	while (1) {
 		/* block(sleep) until notified from kernel IRQ handler */
 		for (i = 0; i < IPC_SHM_MAX_INSTANCES; i++) {
-			if (priv.id[i].uio_fd != NULL)
+			if (priv.id[i].uio_fd != 0)
 				read(priv.id[i].uio_fd, &irq_count, sizeof(irq_count));
 
 			work = priv.rx_cb(i, budget);

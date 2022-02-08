@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: BSD-3-Clause */
 /*
- * Copyright 2019-2021 NXP
+ * Copyright 2019-2022 NXP
  */
 #include <errno.h>
 #include <stdint.h>
@@ -15,19 +15,9 @@
 #include <fcntl.h>
 
 #include "ipc-shm.h"
+#include "ipcf_Ip_Cfg.h"
 
 #define IPC_SHM_DEV_MEM_NAME    "/dev/mem"
-
-/* IPC SHM configuration defines */
-#if defined(CONFIG_SOC_S32GEN1)
-	#define LOCAL_SHM_ADDR 0x34100000
-#elif defined(CONFIG_SOC_S32V234)
-	#define LOCAL_SHM_ADDR 0x3E900000
-#else
-	#error "Platform not supported"
-#endif
-#define IPC_SHM_SIZE 0x100000 /* 1M local shm, 1M remote shm */
-#define REMOTE_SHM_ADDR (LOCAL_SHM_ADDR + IPC_SHM_SIZE)
 
 #ifdef POLLING
 #define INTER_CORE_TX_IRQ IPC_IRQ_NONE
@@ -36,11 +26,12 @@
 #endif /* POLLING */
 #define INTER_CORE_RX_IRQ 1u
 
-#define S_BUF_LEN 32
-#define M_BUF_LEN 256
-#define L_BUF_LEN 4096
 #define CTRL_CHAN_ID 0
 #define CTRL_CHAN_SIZE 64
+#define MAX_SAMPLE_MSG_LEN 32
+#define L_BUF_LEN 4096
+#define IPC_SHM_SIZE 0x100000
+#define LOCAL_SHM_ADDR 0x34100000
 
 /* convenience wrappers for printing messages */
 #define pr_fmt(fmt) "ipc-shm-us-app: %s(): "fmt
@@ -56,7 +47,7 @@
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
 #endif
 
-static int msg_sizes[IPC_SHM_MAX_POOLS] = {S_BUF_LEN};
+static int msg_sizes[IPC_SHM_MAX_POOLS] = {MAX_SAMPLE_MSG_LEN};
 static int msg_sizes_count = 1;
 
 /**
@@ -89,95 +80,19 @@ static struct ipc_sample_app {
 	uint8_t instance;
 } app;
 
-/* sample Rx callbacks */
-static void data_chan_rx_cb(void *cb_arg, const uint8_t instance, int chan_id,
-		void *buf, size_t size);
-static void ctrl_chan_rx_cb(void *cb_arg, const uint8_t instance, int chan_id,
-		void *mem);
+/* link with generated variables */
+const void *rx_cb_arg = &app;
 
 /* Init IPC shared memory driver (see ipc-shm.h for API) */
 static int init_ipc_shm(void)
 {
 	int err;
 
-	/* memory buffer pools */
-	struct ipc_shm_pool_cfg buf_pools[] = {
-		{
-			.num_bufs = 5,
-			.buf_size = S_BUF_LEN
-		},
-		{
-			.num_bufs = 5,
-			.buf_size = M_BUF_LEN
-		},
-		{
-			.num_bufs = 5,
-			.buf_size = L_BUF_LEN
-		},
-	};
-
-	/* data channel configuration */
-	struct ipc_shm_channel_cfg data_chan_cfg = {
-		.type = IPC_SHM_MANAGED,
-		.ch = {
-			.managed = {
-				.num_pools = ARRAY_SIZE(buf_pools),
-				.pools = buf_pools,
-				.rx_cb = data_chan_rx_cb,
-				.cb_arg = &app,
-			},
-		}
-	};
-
-	/* control channel configuration */
-	struct ipc_shm_channel_cfg ctrl_chan_cfg = {
-		.type = IPC_SHM_UNMANAGED,
-		.ch = {
-			.unmanaged = {
-				.size = CTRL_CHAN_SIZE,
-				.rx_cb = ctrl_chan_rx_cb,
-				.cb_arg = &app,
-			},
-		}
-	};
-
-	/* use same configuration for all data channels */
-	struct ipc_shm_channel_cfg channels[] = {ctrl_chan_cfg,
-						 data_chan_cfg, data_chan_cfg};
-
-	/* ipc shm configuration */
-	struct ipc_shm_cfg shm_cfg[1] = {
-		{
-		.local_shm_addr = LOCAL_SHM_ADDR,
-		.remote_shm_addr = REMOTE_SHM_ADDR,
-		.shm_size = IPC_SHM_SIZE,
-		.inter_core_tx_irq = INTER_CORE_TX_IRQ,
-		.inter_core_rx_irq = INTER_CORE_RX_IRQ,
-		.local_core = {
-			.type = IPC_CORE_DEFAULT,
-			.index = IPC_CORE_INDEX_0,  /* automatically assigned */
-			.trusted = IPC_CORE_INDEX_0 | IPC_CORE_INDEX_1
-				   | IPC_CORE_INDEX_2 | IPC_CORE_INDEX_3
-		},
-		.remote_core = {
-			.type = IPC_CORE_DEFAULT,
-			.index = IPC_CORE_INDEX_0,  /* automatically assigned */
-		},
-		.num_channels = ARRAY_SIZE(channels),
-		.channels = channels
-		},
-	};
-
-	struct ipc_shm_instances_cfg shm_cfgs = {
-		.num_instances = 1u,
-		.shm_cfg = shm_cfg,
-	};
-
-	err = ipc_shm_init(&shm_cfgs);
+	err = ipc_shm_init(&ipcf_shm_instances_cfg);
 	if (err)
 		return err;
 
-	app.num_channels = shm_cfgs.shm_cfg[0].num_channels;
+	app.num_channels = ipcf_shm_instances_cfg.shm_cfg[0].num_channels;
 
 	/* acquire control channel memory once */
 	app.ctrl_shm = ipc_shm_unmanaged_acquire(app.instance, CTRL_CHAN_ID);
@@ -193,13 +108,12 @@ static int init_ipc_shm(void)
  * data channel Rx callback: print message, release buffer and signal the
  * completion variable.
  */
-static void data_chan_rx_cb(void *arg, const uint8_t instance, int chan_id,
+void data_chan_rx_cb(void *arg, const uint8_t instance, int chan_id,
 		void *buf, size_t size)
 {
 	int err = 0;
 	char *endptr;
 
-	assert(arg == &app);
 	assert(size <= L_BUF_LEN);
 
 	/* process the received data */
@@ -224,13 +138,12 @@ static void data_chan_rx_cb(void *arg, const uint8_t instance, int chan_id,
 /*
  * control channel Rx callback: print control message
  */
-static void ctrl_chan_rx_cb(void *arg, const uint8_t instance, int chan_id,
+void ctrl_chan_rx_cb(void *arg, const uint8_t instance, int chan_id,
 		void *mem)
 {
 	/* temp buffer for string operations that do unaligned SRAM accesses */
 	char tmp[CTRL_CHAN_SIZE] = {0};
 
-	assert(arg == &app);
 	assert(chan_id == CTRL_CHAN_ID);
 	assert(strlen(mem) <= L_BUF_LEN);
 
