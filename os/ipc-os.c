@@ -8,16 +8,20 @@
 #include <sys/mman.h>
 #include <sys/syscall.h>
 #include <pthread.h>
+#include <stdlib.h>
+#include <dirent.h>
 
 #include "ipc-os.h"
 #include "ipc-hw.h"
 #include "ipc-shm.h"
 #include "ipc-uio.h"
 
-#define IPC_SHM_DEV_UIO_NAME    "/dev/uio0"
 #define IPC_SHM_DEV_MEM_NAME    "/dev/mem"
-
+#define IPC_SHM_UIO_BUF_LEN     255
+#define IPC_SHM_UIO_DIR         "/sys/class/uio"
 #define IPC_UIO_PARAMS_LEN      130
+#define UIO_DRIVER_NAME         "ipc-shm-uio"
+#define DRIVER_VERSION          "0.1"
 
 #define RX_SOFTIRQ_POLICY	SCHED_FIFO
 
@@ -69,6 +73,95 @@ static struct ipc_os_priv {
 	struct ipc_os_priv_instance id[IPC_SHM_MAX_INSTANCES];
 	int (*rx_cb)(const uint8_t instance, int budget);
 } priv;
+
+/** read first line from file */
+static int line_from_file(char *filename, char *buf)
+{
+	char *s;
+	int i;
+	FILE *file = fopen(filename, "r");
+
+	memset(buf, 0, IPC_UIO_PARAMS_LEN);
+	if (!file)
+		return -ENONET;
+
+	s = fgets(buf, IPC_SHM_UIO_BUF_LEN, file);
+	if (!s)
+		return -EIO;
+
+	/* read first line only */
+	for (i = 0; (*s) && (i < IPC_SHM_UIO_BUF_LEN); i++) {
+		if (*s == '\n') {
+			*s = 0;
+			break;
+		}
+		s++;
+	}
+
+	fclose(file);
+	return 0;
+}
+
+/** check whether first line from filename matched filter string */
+static int line_match(char *filename, char *filter)
+{
+	int err;
+	char linebuf[IPC_SHM_UIO_BUF_LEN];
+
+	err = line_from_file(filename, linebuf);
+
+	if (err != 0)
+		return err;
+
+	err = strncmp(linebuf, filter, IPC_SHM_UIO_BUF_LEN);
+	if (err != 0)
+		return EINVAL;
+
+	return 0;
+}
+
+/** find the first UIO device that matched the kernel counterpart*/
+static int get_uio_dev_name(char *dev_name)
+{
+	struct dirent **name_list;
+	int nentries, count, i, err;
+	char filename[IPC_SHM_UIO_BUF_LEN];
+
+	nentries = scandir(IPC_SHM_UIO_DIR, &name_list, NULL, alphasort);
+	if (nentries < 0)
+		return -EIO;
+
+	count = nentries;
+	while (count--) {
+
+		/*match name*/
+		err = snprintf(filename, sizeof(filename),
+			IPC_SHM_UIO_DIR "/%s/name", name_list[count]->d_name);
+		if (err <= 0)
+			return -EIO;
+		if (line_match(filename, UIO_DRIVER_NAME) != 0)
+			continue;
+
+		/*match version*/
+		err = snprintf(filename, sizeof(filename),
+			IPC_SHM_UIO_DIR "/%s/version", name_list[count]->d_name);
+		if (err <= 0)
+			return -EIO;
+		if (line_match(filename, DRIVER_VERSION) != 0)
+			continue;
+
+		break;
+	}
+	if (count >= 0) {
+		strncpy(dev_name, name_list[count]->d_name, IPC_SHM_UIO_BUF_LEN);
+	}
+	/* free memory allocated by scandir */
+	for (i = 0; i < nentries; i++)
+		free(name_list[i]);
+	free(name_list);
+
+	return count >= 0 ? 0 : -ENONET;
+}
 
 /* Rx sotfirq thread */
 static void *ipc_shm_softirq(void *arg)
@@ -191,10 +284,21 @@ int ipc_os_init(const uint8_t instance, const struct ipc_shm_cfg *cfg,
 	priv.id[instance].remote_virt_shm = priv.id[instance].remote_shm_map
 						+ priv.id[instance].remote_shm_offset;
 
+	/* search for UIO device name */
+	char uio_dev_name[IPC_SHM_UIO_BUF_LEN];
+	char dev_uio[IPC_SHM_UIO_BUF_LEN*2];
+
+	err = get_uio_dev_name(uio_dev_name);
+	if (err != 0) {
+		err = -ENOENT;
+		goto err_unmap_remote_shm;
+	}
+	snprintf(dev_uio, sizeof(dev_uio), "/dev/%s", uio_dev_name);
+
 	/* open UIO device for interrupt support */
-	priv.id[instance].uio_fd = open(IPC_SHM_DEV_UIO_NAME, O_RDWR);
+	priv.id[instance].uio_fd = open(dev_uio, O_RDWR);
 	if (priv.id[instance].uio_fd == -1) {
-		shm_err("Can't open %s device\n", IPC_SHM_DEV_UIO_NAME);
+		shm_err("Can't open %s device\n", dev_uio);
 		err = -ENODEV;
 		goto err_unmap_remote_shm;
 	}
