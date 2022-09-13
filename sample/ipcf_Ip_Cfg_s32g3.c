@@ -75,8 +75,8 @@ static struct ipc_shm_channel_cfg ipcf_shm_cfg_channels0[3] = {
 /* ipc shm configuration */
 struct ipc_shm_cfg ipcf_shm_cfg_instances[1] = {
 	{
-		.local_shm_addr  = 0x34080000,
-		.remote_shm_addr = 0x340A0000,
+		.local_shm_addr  = 0x34100000,
+		.remote_shm_addr = 0x34200000,
 		.inter_core_tx_irq = 2u,
 		.inter_core_rx_irq = 1u,
 		.remote_core = {

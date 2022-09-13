@@ -31,7 +31,6 @@
 #define MAX_SAMPLE_MSG_LEN 32
 #define L_BUF_LEN 4096
 #define IPC_SHM_SIZE 0x100000
-#define LOCAL_SHM_ADDR 0x34100000
 
 /* convenience wrappers for printing messages */
 #define pr_fmt(fmt) "ipc-shm-us-app: %s(): "fmt
@@ -69,7 +68,7 @@ static struct ipc_sample_app {
 	int num_channels;
 	int num_msgs;
 	char *ctrl_shm;
-	int last_rx_no_msg;
+	volatile int last_rx_no_msg;
 	char last_tx_msg[L_BUF_LEN];
 	char last_rx_msg[L_BUF_LEN];
 	int *local_virt_shm;
@@ -105,20 +104,35 @@ static int init_ipc_shm(void)
 }
 
 /*
+ * ipc implementation of memcpy
+ */
+void ipc_memcpy(void *tmp, void *buf, size_t data_size)
+{
+	size_t  i = 0;
+	/* Cast to char* as memcpy copy each bytes */
+	char *tmp_casted = (char *)tmp;
+	char *buf_casted = (char *)buf;
+
+	for (i = 0; i < data_size; i++)
+		tmp_casted[i] = buf_casted[i];
+}
+
+/*
  * data channel Rx callback: print message, release buffer and signal the
  * completion variable.
  */
 void data_chan_rx_cb(void *arg, const uint8_t instance, int chan_id,
-		void *buf, size_t size)
+		void *buf, size_t data_size)
 {
 	int err = 0;
 	char *endptr;
+	char tmp[MAX_SAMPLE_MSG_LEN];
 
-	assert(size <= L_BUF_LEN);
+	assert(data_size <= MAX_SAMPLE_MSG_LEN);
 
 	/* process the received data */
-	memcpy(app.last_rx_msg, buf, size);
-	sample_info("ch %d << %ld bytes: %s\n", chan_id, size, app.last_rx_msg);
+	ipc_memcpy(tmp, (char *)buf, data_size);
+	sample_info("ch %d << %ld bytes: %s\n", chan_id, data_size, tmp);
 
 	/* consume received data: get number of message */
 	/* Note: without being copied locally */
@@ -142,14 +156,13 @@ void ctrl_chan_rx_cb(void *arg, const uint8_t instance, int chan_id,
 		void *mem)
 {
 	/* temp buffer for string operations that do unaligned SRAM accesses */
-	char tmp[CTRL_CHAN_SIZE] = {0};
+	char tmp[CTRL_CHAN_SIZE];
 
 	assert(chan_id == CTRL_CHAN_ID);
-	assert(strlen(mem) <= L_BUF_LEN);
+	assert(strlen(mem) <= CTRL_CHAN_SIZE);
 
-	memcpy(tmp, mem, CTRL_CHAN_SIZE);
-	sample_info("ch %d << %ld bytes: %s\n",
-		    chan_id, strlen(tmp), (char *)tmp);
+	ipc_memcpy(tmp, (char *)mem, CTRL_CHAN_SIZE);
+	sample_info("ch %d << %ld bytes: %s\n", chan_id, strlen(tmp), tmp);
 
 	/* notify run_demo() the ctrl reply was received and demo can end */
 	sem_post(&app.sema);
@@ -166,7 +179,7 @@ static int send_ctrl_msg(const uint8_t instance)
 
 	/* Write number of messages to be sent in control channel memory */
 	sprintf(tmp, "SENDING MESSAGES: %d", app.num_msgs);
-	memcpy(app.ctrl_shm, tmp, CTRL_CHAN_SIZE);
+	ipc_memcpy(app.ctrl_shm, tmp, CTRL_CHAN_SIZE);
 
 	sample_info("ch %d >> %ld bytes: %s\n", chan_id, strlen(tmp), tmp);
 
@@ -221,10 +234,9 @@ static int send_data_msg(const uint8_t instance, int msg_len, int msg_no,
 	generate_msg(buf, msg_len, msg_no);
 
 	/* save data for comparison with echo reply */
-	memcpy(app.last_tx_msg, buf, msg_len);
+	ipc_memcpy(app.last_tx_msg, buf, msg_len);
 
-	sample_info("ch %d >> %d bytes: %s\n", chan_id, msg_len,
-		    app.last_tx_msg);
+	sample_info("ch %d >> %d bytes: %s\n", chan_id, msg_len, app.last_tx_msg);
 
 	/* send data to remote peer */
 	err = ipc_shm_tx(instance, chan_id, buf, msg_len);
@@ -239,14 +251,6 @@ static int send_data_msg(const uint8_t instance, int msg_len, int msg_no,
 	if (errno == EINTR) {
 		sample_info("interrupted...\n");
 		return err;
-	}
-
-	/* check if received message match with sent message */
-	if (app.last_rx_no_msg != msg_no) {
-		sample_err("last_rx_no_msg != msg_no\n");
-		sample_err(">> #%d\n", msg_no);
-		sample_err("<< #%d\n", app.last_rx_no_msg);
-		return -EINVAL;
 	}
 
 	return 0;
@@ -302,8 +306,8 @@ int main(int argc, char *argv[])
 	app.instance = 0;
 	size_t page_size = sysconf(_SC_PAGE_SIZE);
 	off_t page_phys_addr;
-	uintptr_t local_shm_addr = LOCAL_SHM_ADDR;
-	uint32_t shm_size = IPC_SHM_SIZE;
+	uintptr_t local_shm_addr = ipcf_shm_instances_cfg.shm_cfg->local_shm_addr;
+	uint32_t shm_size = ipcf_shm_instances_cfg.shm_cfg->shm_size;
 	int tmp[IPC_SHM_SIZE] = {0};
 
 	sem_init(&app.sema, 0, 0);
@@ -343,7 +347,7 @@ int main(int argc, char *argv[])
 
 	app.local_virt_shm = app.local_shm_map + app.local_shm_offset;
 
-	memcpy(app.local_virt_shm, tmp, IPC_SHM_SIZE);
+	memcpy(app.local_virt_shm, tmp, shm_size);
 	munmap(app.local_shm_map, app.local_shm_offset + shm_size);
 	close(app.mem_fd);
 
