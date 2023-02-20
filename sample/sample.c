@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: BSD-3-Clause */
 /*
- * Copyright 2019-2022 NXP
+ * Copyright 2019-2023 NXP
  */
 #include <errno.h>
 #include <stdint.h>
@@ -45,6 +45,12 @@
 #ifndef ARRAY_SIZE
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
 #endif
+
+#ifndef IPC_MEMCPY_BYTES_ALIGNED
+#define IPC_MEMCPY_BYTES_ALIGNED 8
+#endif
+
+#define IS_ALIGNED(x, a) (((x) & ((typeof(x))(a) - 1)) == 0)
 
 static int msg_sizes[IPC_SHM_MAX_POOLS] = {MAX_SAMPLE_MSG_LEN};
 static int msg_sizes_count = 1;
@@ -104,17 +110,67 @@ static int init_ipc_shm(void)
 }
 
 /*
- * ipc implementation of memcpy
+ * ipc implementation of memcpy to IO memory space
  */
-void ipc_memcpy(void *tmp, void *buf, size_t data_size)
+void ipc_memcpy_toio(void *dst, void *buf, size_t count)
 {
-	size_t  i = 0;
+	static int bytes_aligned = IPC_MEMCPY_BYTES_ALIGNED;
 	/* Cast to char* as memcpy copy each bytes */
-	char *tmp_casted = (char *)tmp;
+	char *dst_casted = (char *)dst;
 	char *buf_casted = (char *)buf;
 
-	for (i = 0; i < data_size; i++)
-		tmp_casted[i] = buf_casted[i];
+	while (count && !IS_ALIGNED((unsigned long)dst_casted, bytes_aligned)) {
+		*dst_casted = *buf_casted;
+		dst_casted += 1;
+		buf_casted += 1;
+		count--;
+	}
+
+	while (count >= bytes_aligned) {
+		memcpy(dst_casted, buf_casted, bytes_aligned);
+		dst_casted += bytes_aligned;
+		buf_casted += bytes_aligned;
+		count -= bytes_aligned;
+	}
+
+	while (count) {
+		*dst_casted = *buf_casted;
+		dst_casted += 1;
+		buf_casted += 1;
+		count--;
+	}
+}
+
+/*
+ * ipc implementation of memcpy from IO memory space
+ */
+void ipc_memcpy_fromio(void *dst, void *buf, size_t count)
+{
+	static int bytes_aligned = IPC_MEMCPY_BYTES_ALIGNED;
+	/* Cast to char* as memcpy copy each bytes */
+	char *dst_casted = (char *)dst;
+	char *buf_casted = (char *)buf;
+
+	while (count && !IS_ALIGNED((unsigned long)buf_casted, bytes_aligned)) {
+		*dst_casted = *buf_casted;
+		dst_casted += 1;
+		buf_casted += 1;
+		count--;
+	}
+
+	while (count >= bytes_aligned) {
+		memcpy(dst_casted, buf_casted, bytes_aligned);
+		dst_casted += bytes_aligned;
+		buf_casted += bytes_aligned;
+		count -= bytes_aligned;
+	}
+
+	while (count) {
+		*dst_casted = *buf_casted;
+		dst_casted += 1;
+		buf_casted += 1;
+		count--;
+	}
 }
 
 /*
@@ -131,7 +187,7 @@ void data_chan_rx_cb(void *arg, const uint8_t instance, int chan_id,
 	assert(data_size <= MAX_SAMPLE_MSG_LEN);
 
 	/* process the received data */
-	ipc_memcpy(tmp, (char *)buf, data_size);
+	ipc_memcpy_fromio(tmp, (char *)buf, data_size);
 	sample_info("ch %d << %ld bytes: %s\n", chan_id, data_size, tmp);
 
 	/* consume received data: get number of message */
@@ -161,7 +217,7 @@ void ctrl_chan_rx_cb(void *arg, const uint8_t instance, int chan_id,
 	assert(chan_id == CTRL_CHAN_ID);
 	assert(strlen(mem) <= CTRL_CHAN_SIZE);
 
-	ipc_memcpy(tmp, (char *)mem, CTRL_CHAN_SIZE);
+	ipc_memcpy_fromio(tmp, (char *)mem, CTRL_CHAN_SIZE);
 	sample_info("ch %d << %ld bytes: %s\n", chan_id, strlen(tmp), tmp);
 
 	/* notify run_demo() the ctrl reply was received and demo can end */
@@ -179,7 +235,7 @@ static int send_ctrl_msg(const uint8_t instance)
 
 	/* Write number of messages to be sent in control channel memory */
 	sprintf(tmp, "SENDING MESSAGES: %d", app.num_msgs);
-	ipc_memcpy(app.ctrl_shm, tmp, CTRL_CHAN_SIZE);
+	ipc_memcpy_toio(app.ctrl_shm, tmp, CTRL_CHAN_SIZE);
 
 	sample_info("ch %d >> %ld bytes: %s\n", chan_id, strlen(tmp), tmp);
 
@@ -203,9 +259,15 @@ static int send_ctrl_msg(const uint8_t instance)
  */
 static void generate_msg(char *dest, int len, int msg_no)
 {
-	static char *msg_pattern = "HELLO WORLD!";
+	char tmp[MAX_SAMPLE_MSG_LEN];
 
-	snprintf(dest, len, "#%d %s\0", msg_no, msg_pattern);
+	/* Write number of messages to be sent in control channel memory.
+	 * Use stack temp buffer because snprintf may do unaligned memory writes
+	 * in SRAM and A53 will complain about unaligned accesses.
+	 */
+	int ret = snprintf(tmp, len, "#%d HELLO WORLD! FROM UIO", msg_no);
+
+	ipc_memcpy_toio(dest, tmp, ret);
 }
 
 /**
@@ -234,7 +296,7 @@ static int send_data_msg(const uint8_t instance, int msg_len, int msg_no,
 	generate_msg(buf, msg_len, msg_no);
 
 	/* save data for comparison with echo reply */
-	ipc_memcpy(app.last_tx_msg, buf, msg_len);
+	ipc_memcpy_fromio(app.last_tx_msg, buf, msg_len);
 
 	sample_info("ch %d >> %d bytes: %s\n", chan_id, msg_len, app.last_tx_msg);
 
