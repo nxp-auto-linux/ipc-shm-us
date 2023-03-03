@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: BSD-3-Clause */
 /*
- * Copyright 2019-2022 NXP
+ * Copyright 2019-2023 NXP
  */
 #include <fcntl.h>
 #include <unistd.h>
@@ -177,14 +177,14 @@ static void *ipc_shm_softirq(void *arg)
 			if (priv.id[i].uio_fd != 0)
 				read(priv.id[i].uio_fd, &irq_count, sizeof(irq_count));
 
-			work = priv.rx_cb(i, budget);
-			if (work < budget) {
-				/* work done, re-enable irq */
-				ipc_hw_irq_enable(i);
-			} else {
+			do {
+				work = priv.rx_cb(i, budget);
 				/* work not done, yield and wait for reschedule */
 				sched_yield();
-			}
+			} while (work >= budget);
+
+			/* re-enable irq */
+			ipc_hw_irq_enable(i);
 		}
 	}
 
