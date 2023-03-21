@@ -1,6 +1,6 @@
 # SPDX-License-Identifier:	BSD-3-Clause
 #
-# Copyright 2019,2021-2022 NXP
+# Copyright 2019,2021-2023 NXP
 #
 
 # The following variables must be defined by caller:
@@ -28,6 +28,9 @@ endif
 
 ifeq ($(PLATFORM_FLAVOR),s32g2)
 ccflags-y += -DPLATFORM_FLAVOR_s32g2
+endif
+ifeq ($(PLATFORM_FLAVOR),s32r45)
+ccflags-y += -DPLATFORM_FLAVOR_s32r45
 endif
 ifeq ($(PLATFORM_FLAVOR),s32g3)
 ccflags-y += -DPLATFORM_FLAVOR_s32g3
