@@ -1,5 +1,5 @@
 [submodule "common"]
 	path = common
-	url = https://source.codeaurora.org/external/autobsps32/ipcf/ipc-shm
-	branch = master
+	url = https://github.com/nxp-auto-linux/ipc-shm.git
+	branch = release/bsp37.0
 	ignore = all
